@@ -10,8 +10,10 @@
 # Raw embedded-DB directory — the image seeds from docker/seed.dump instead.
 .pgdata/
 
-# Source corpus (~0.5 GB) — only needed to re-ingest, not to run.
-data/
+# Source corpus (~0.5 GB) — only needed to re-ingest, not to run. The statute
+# base (~120 KB) is the exception: scripts/seed_mock.py reads it at run time.
+data/*
+!data/laws
 
 # Local dev cruft
 __pycache__/
