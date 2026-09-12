@@ -508,10 +508,21 @@ def _draft_query(draft: dict, raw_text: str) -> str:
 
 
 def _outcome_of(entry) -> str:
-    """Best-effort past outcome of a matched entry, for «نتیجه» in the similar list."""
+    """Best-effort past outcome of a matched entry, for «نتیجه» in the similar list.
+
+    `status` is stored as the extraction schema's English enum
+    (`open|closed|appeal`); this is display text, so it is translated — a raw
+    "closed" beside a Persian case title is exactly the leak the UI rules
+    forbid.
+    """
+    from app.rag.casebase import STATUS_FA
+
     ent = entry.entities or {}
+    if ent.get("outcome"):
+        return str(ent["outcome"])
     if ent.get("status"):
-        return str(ent["status"])
+        status = str(ent["status"])
+        return STATUS_FA.get(status, status)
     summary = (entry.summary or "").strip()
     if summary:
         first = summary.split(". ")[0].split("۔")[0]

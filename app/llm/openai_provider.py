@@ -16,22 +16,28 @@ _BACKOFF = (1.0, 3.0, 6.0)
 
 
 async def with_transient_retry(call, model: str):
-    """Await `call()`, retrying a transient 403 / 429 / 5xx / connection drop."""
+    """Await `call()`, retrying a transient 403 / 429 / 5xx / connection drop.
+
+    With `LLM_CHAIN` configured the retries collapse to one attempt: a free
+    tier's quota does not lift in the six seconds of backoff, and spending them
+    anyway delays the fallback link that is ready right now (see chain.py).
+    """
     import openai
 
+    retries = 1 if os.environ.get("LLM_CHAIN", "").strip() else _RETRIES
     last: Exception | None = None
-    for attempt in range(_RETRIES):
+    for attempt in range(retries):
         try:
             return await call()
         except (openai.PermissionDeniedError, openai.RateLimitError,
                 openai.InternalServerError, openai.APIConnectionError) as error:
             last = error
-            if attempt < _RETRIES - 1:
+            if attempt < retries - 1:
                 await asyncio.sleep(_BACKOFF[attempt])
 
     if isinstance(last, openai.PermissionDeniedError):
         raise RuntimeError(
-            f"{model}: the endpoint returned 403 «Access denied» {_RETRIES}× — that "
+            f"{model}: the endpoint returned 403 «Access denied» {retries}× — that "
             "is the network/edge blocking this host, NOT a bad API key (a wrong key "
             "returns 401). It comes and goes: retry in a minute, use a VPN, or pick "
             "a local Ollama model in the model panel."
@@ -100,6 +106,18 @@ class OpenAIProvider(LLMProvider):
 
     def is_available(self) -> bool:
         return bool(self.api_key)
+
+    def _vendor_adjust(self, extra: dict, *, tools: list[dict] | None = None) -> dict:
+        """Last word on the non-message parameters of a `generate()` call.
+
+        `generate()` assembles `extra` (tools, response_format, reasoning
+        effort) from what the *caller* asked for; this hook is where a
+        subclass reconciles that with what its own endpoint actually accepts —
+        z.ai's `thinking` switch, Gemini's refusal of parallel tool calls.
+        `stream()` needs no equivalent because it goes through `_request()`,
+        which subclasses already override.
+        """
+        return extra
 
     def _request(self, prompt, system, max_tokens, temperature, json_mode, reasoning_effort):
         """The request body, shared by generate() and stream(). Subclasses
@@ -217,6 +235,7 @@ class OpenAIProvider(LLMProvider):
         # even offers the control for this model id).
         if reasoning_effort:
             extra["reasoning_effort"] = reasoning_effort
+        extra = self._vendor_adjust(extra, tools=tools)
         resp = await with_transient_retry(
             lambda: client.chat.completions.create(
                 model=self.model,

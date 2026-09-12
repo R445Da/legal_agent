@@ -10,15 +10,23 @@ import os
 
 from .anthropic_provider import AnthropicProvider
 from .base import LLMProvider
+from .chain import ChainProvider
+from .gemini_provider import GeminiProvider
 from .groq_provider import GroqProvider
 from .local_provider import LocalProvider
 from .mock_provider import MockProvider
 from .openai_provider import OpenAIProvider
+from .zai_provider import ZaiProvider
 
 _PROVIDERS = {
     "anthropic": AnthropicProvider,
     "openai": OpenAIProvider,
     "groq": GroqProvider,
+    "gemini": GeminiProvider,
+    "zai": ZaiProvider,
+    # "chain" is not a vendor: it is the ordered fallback list in LLM_CHAIN,
+    # ending on the local model, so a dead endpoint never takes the app with it.
+    "chain": ChainProvider,
     "local": LocalProvider,
     "mock": MockProvider,
 }

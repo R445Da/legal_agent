@@ -29,7 +29,7 @@ from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
 from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
-from app.ui import aio, components, data
+from app.ui import aio, askflow, components, data
 from app.ui.resources import session
 from app.ui.theme import card, case_id, chips, esc, fa_num, kv, stamp
 
@@ -276,10 +276,97 @@ def _draft_for_archive(
         else:
             awaiting = next((s for s in view["steps"] if s["status"] == "awaiting_input"), None)
             status.update(
-                label="آمادهٔ بازبینی" if awaiting else "خط لوله آغاز شد",
+                label="آمادهٔ گفتگو" if awaiting else "خط لوله آغاز شد",
                 state="complete",
             )
+    # The run's own turn in the transcript: the step rail and the record as it
+    # stands. The questions that follow are separate turns, so the transcript
+    # reads as a conversation rather than as one panel that keeps changing.
     _say("assistant", intent="archive", run_id=view["id"])
+    _after_advance(cfg, view)
+
+
+# --------------------------------------------------------------------------- #
+# The gate as a conversation (app/ui/askflow.py)
+#
+# A gate used to be a panel: every field of the record at once, as editable
+# grids, with one «تأیید و ادامه» button. Now the same payload becomes an
+# ordered list of questions, and the chat asks them one at a time — the answer
+# to each is its own turn, typed in the composer or tapped from a quick reply.
+# The workflow underneath is untouched: only when the last question is answered
+# does a single `user_patch` go back to `workflow.advance`.
+# --------------------------------------------------------------------------- #
+def _ask_next(run_id: str) -> None:
+    """Post the question the conversation is now on, as an assistant turn."""
+    question = askflow.current()
+    if question is None:
+        return
+    step, total = askflow.progress()
+    _say(
+        "assistant", kind="ask", run_id=run_id, qid=question["id"],
+        prompt=question["prompt"], card=question.get("card", ""),
+        chips=list(question.get("chips") or []), note=question.get("note", ""),
+        step=step, total=total,
+    )
+
+
+def _close_live_question() -> None:
+    """Mark the question the user just answered as no longer awaiting a reply,
+    so it renders as plain transcript instead of keeping its quick replies."""
+    for message in reversed(_history()):
+        if message.get("kind") == "ask" and not message.get("done"):
+            message["done"] = True
+            return
+
+
+def _after_advance(cfg: dict, view: dict) -> None:
+    """Whatever the run did, say it — and if it stopped for the user, start
+    asking."""
+    if view["status"] == "committed":
+        _say("assistant", kind="filed", run_id=view["id"], entry_id=view.get("entry_id"))
+        askflow.clear()
+        data.refresh()
+        return
+
+    failed = next((s for s in view["steps"] if s["status"] == "failed"), None)
+    if failed:
+        _say("assistant", kind="wf_failed", run_id=view["id"],
+             step=failed["step_id"], error=failed.get("error") or "")
+        askflow.clear()
+        return
+
+    if askflow.begin(view, mode=st.session_state.get("wf_mode", "review")):
+        _ask_next(view["id"])
+
+
+def _archive_turn(cfg: dict, text: str) -> None:
+    """Apply the user's turn to the open question, then either ask the next one
+    or hand the whole conversation back to the pipeline."""
+    stt = askflow.state()
+    run_id = stt["run_id"]
+    _close_live_question()
+
+    result = askflow.answer(text)
+    if result["ack"]:
+        _say("assistant", kind="ack", text=result["ack"])
+
+    if result["cancelled"]:
+        _wf_abandon(run_id)
+        askflow.clear()
+        return
+    if not result["finished"]:
+        _ask_next(run_id)
+        return
+
+    patch = askflow.patch()
+    askflow.clear()
+    with st.status("در حال ثبت مدخل…", expanded=False) as status:
+        view = _wf_advance(cfg, run_id, user_patch=patch)
+        status.update(
+            label="مدخل ثبت شد" if view["status"] == "committed" else "گام بعدی",
+            state="complete",
+        )
+    _after_advance(cfg, view)
 
 
 def _source_preview(cfg: dict) -> None:
@@ -349,18 +436,48 @@ def _archive_stats(cfg: dict, text: str) -> None:
 # --------------------------------------------------------------------------- #
 # Rendering the transcript
 # --------------------------------------------------------------------------- #
+# Every key the extractor can put in `entities`, in Persian. A field missing
+# from this map printed its raw English key on screen — «case_type» beside
+# «موضوع» — which is the one thing this UI is not allowed to do.
 _FIELD_FA = {
     "title": "عنوان", "summary": "خلاصه", "kind": "نوع", "case_number": "شمارهٔ پرونده",
     "court": "مرجع رسیدگی", "branch": "شعبه", "date": "تاریخ", "year": "سال",
     "topic": "موضوع", "status": "وضعیت", "doc_kind": "نوع سند",
+    # added with the insurance edition (v2)
+    "case_type": "نوع پرونده", "insurance_line": "رشتهٔ بیمه‌ای",
+    "claim_amount": "مبلغ خواسته", "outcome": "نتیجه", "filed_date": "تاریخ ثبت",
+    "people": "اشخاص", "orgs": "سازمان‌ها",
 }
 
 
+def _field_value(key: str, value) -> str:
+    """An entity value as it should appear on screen.
+
+    Most values come out of the extractor already in Persian; `status` is the
+    one field whose vocabulary is a fixed English enum in the schema
+    (`open|closed|appeal`), so it is translated rather than printed raw.
+    """
+    from app.rag.casebase import STATUS_FA
+
+    text = str(value)
+    if key == "status":
+        return STATUS_FA.get(text, text)
+    return text
+
+
 def _label_party(party) -> str:
-    """A party as a line of text, whatever shape the extractor returned."""
+    """A party as a line of text, whatever shape the extractor returned.
+
+    The role arrives as the schema's transliterated key (`khahan`), which is
+    what `parties` stores — so it is translated here, through the same map the
+    case views use, rather than printed raw.
+    """
+    from app.rag.casebase import ROLE_FA
+
     if isinstance(party, dict):
         name = party.get("name") or party.get("party") or ""
-        role = party.get("role") or ""
+        role = str(party.get("role") or "").strip()
+        role = ROLE_FA.get(role, role)
         return f"{role}: {name}".strip(": ") if name else ""
     return str(party or "").strip()
 
@@ -405,7 +522,7 @@ def _draft_ticket(draft: dict) -> None:
         f"<h4>{esc(draft.get('title') or 'بدون عنوان')}</h4>"
         f"<div style='margin:6px 0'>{case_id(number)}</div>"
         f"<div class='meta'>{esc(draft.get('summary') or '—')}</div>"
-        + kv([(_FIELD_FA.get(k, k), v) for k, v in entities.items()
+        + kv([(_FIELD_FA.get(k, k), _field_value(k, v)) for k, v in entities.items()
               if v and not isinstance(v, (list, dict))])
         + ("<div style='margin-top:8px'><b style='font-size:12px'>طرفین</b>"
            + chips([line for line in map(_label_party, parties) if line]) + "</div>"
@@ -421,276 +538,148 @@ def _draft_ticket(draft: dict) -> None:
     )
 
 
-def _stepper(view: dict) -> None:
+def _rail(view: dict) -> None:
+    """The seven steps as one compact horizontal rail.
+
+    The vertical stepper this replaces was taller than the record it described,
+    which pushed the live question off the screen on a laptop. Here the run's
+    shape is one line: a numbered dot per step, filled as it completes.
+    """
     by_id = {s["step_id"]: s for s in view["steps"]}
-    rows = ""
+    cells = ""
     for seq, sid in enumerate(_STEP_ORDER, start=1):
-        step = by_id.get(sid, {"seq": seq, "status": "pending"})
+        step = by_id.get(sid, {"status": "pending"})
         status = step["status"]
         icon = _WF_ICON.get(status, fa_num(seq))
-        ms = f"<span class='wf-ms'> · {fa_num(step['ms'])} م‌ث</span>" if step.get("ms") else ""
-        detail = (
-            f"<div class='wf-detail{' err' if status == 'failed' else ''}'>"
-            f"{esc(step.get('error') or step.get('detail') or '')}</div>"
-            if (step.get("detail") or step.get("error")) else ""
+        cells += (
+            f"<div class='rail-cell {status}'><div class='rail-dot'>{icon}</div>"
+            f"<div class='rail-lbl'>{esc(_STEP_FA[sid])}</div></div>"
         )
-        rows += (
-            f"<div class='wf-step {status}'><div class='wf-icon'>{icon}</div>"
-            f"<div style='flex:1;min-width:0'><div class='wf-label'>{fa_num(seq)}. "
-            f"{esc(_STEP_FA[sid])}{ms}</div>{detail}</div></div>"
-        )
-    st.markdown(f"<div class='card'>{rows}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='rail'>{cells}</div>", unsafe_allow_html=True)
+
+
+def _draft_of(view: dict) -> dict:
+    """The record as the run last saw it — for a run whose conversation is over
+    (committed, abandoned, reloaded) and so has no live working copy."""
+    for step in reversed(view.get("steps") or []):
+        payload = step.get("payload") or {}
+        if isinstance(payload.get("draft"), dict):
+            return payload["draft"]
+        if step["step_id"] == "extract" and payload.get("title") is not None:
+            return payload
+    return {}
 
 
 def _render_pipeline(cfg: dict, message: dict, index: int) -> None:
-    """The archive path: the six-step run, and whichever gate it is waiting on."""
+    """The run's own turn: the rail, and the record as it stands.
+
+    Deliberately *not* the gate — the questions are separate turns further down
+    the transcript. This message is the header they belong to, so it stays
+    short and never grows a form.
+    """
     view = _wf_load(message["run_id"])
     if not view:
         st.error("اجرای خط لوله یافت نشد.")
         return
 
-    _stepper(view)
+    _rail(view)
+
+    live = askflow.active(message["run_id"])
+    draft = askflow.record() if live else _draft_of(view)
+    if draft:
+        _draft_ticket(draft)
 
     if view["status"] == "committed":
-        entry_id = view.get("entry_id") or ""
-        st.markdown(stamp("مدخل در آرشیو ثبت شد", "teal"), unsafe_allow_html=True)
-        st.caption(f"شناسهٔ مدخل: {esc(entry_id)}")
-        if not message.get("_refreshed"):
-            message["_refreshed"] = True
-            data.refresh()
         return
     if view["status"] == "abandoned":
-        st.caption("این خط لوله متوقف شد.")
+        st.caption("این پیش‌نویس رها شد.")
         return
 
     failed = next((s for s in view["steps"] if s["status"] == "failed"), None)
     if failed:
-        st.error(f"گام «{_STEP_FA.get(failed['step_id'], failed['step_id'])}» ناموفق بود — "
-                 f"{failed.get('error') or ''}")
-        cols = st.columns([3, 1])
-        if cols[0].button("تلاش دوباره", key=f"wf_retry_{index}", type="primary",
-                          use_container_width=True):
-            with st.spinner("در حال اجرای دوبارهٔ گام…"):
-                _wf_advance(cfg, message["run_id"])
-            st.rerun()
-        if cols[1].button("توقف", key=f"wf_stop_fail_{index}", use_container_width=True):
-            _wf_abandon(message["run_id"])
-            st.rerun()
-        return
+        return  # its own turn says so, with the retry
 
     awaiting = next((s for s in view["steps"] if s["status"] == "awaiting_input"), None)
-    if awaiting:
-        _render_gate(cfg, message["run_id"], awaiting, index)
+    if awaiting and not live:
+        # The conversation was lost (a reload, a new session) but the run is
+        # still parked at its gate — offer to pick the questions back up.
+        st.caption(
+            f"این اجرا در گام «{_STEP_FA.get(awaiting['step_id'], awaiting['step_id'])}» "
+            "منتظر شماست."
+        )
+        if st.button("ادامهٔ گفتگو", key=f"wf_resume_ask_{index}", type="primary"):
+            if askflow.begin(view, mode=st.session_state.get("wf_mode", "review")):
+                _ask_next(view["id"])
+            st.rerun()
         return
 
-    # A step still marked "running" with nothing awaiting means the advance call
-    # that started it was interrupted (tab closed, reload). Offer to resume it.
     running = next((s for s in view["steps"] if s["status"] == "running"), None)
-    if running:
+    if running and not live:
         st.caption(f"گام «{_STEP_FA.get(running['step_id'], running['step_id'])}» ناتمام ماند.")
         if st.button("ادامه", key=f"wf_resume_{index}", type="primary"):
             with st.spinner("در حال ادامهٔ خط لوله…"):
-                _wf_advance(cfg, message["run_id"])
+                view = _wf_advance(cfg, message["run_id"])
+            _after_advance(cfg, view)
             st.rerun()
 
 
-def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
-    sid = step["step_id"]
-    payload = step.get("payload") or {}
-    review = sid == "labels" and payload.get("mode") == "review"
-
-    heading = "بازبینی نهایی و ثبت" if review else _STEP_FA.get(sid, sid)
+def _render_ask(cfg: dict, message: dict, index: int) -> None:
+    """One question. Its quick replies are live only while it is the open one —
+    an answered question stays in the transcript as plain text, the way the rest
+    of the conversation does."""
+    step, total = message.get("step", 0), message.get("total", 0)
+    counter = (f"<span class='ask-count'>پرسش {fa_num(step)} از {fa_num(total)}</span>"
+               if total else "")
     st.markdown(
-        f"<span class='intent-badge archive'>در انتظار تأیید شما — {esc(heading)}</span>",
+        f"<div class='ask'>{counter}<div class='ask-q'>{esc(message['prompt'])}</div>"
+        f"{message.get('card') or ''}"
+        + (f"<div class='ask-note'>{esc(message['note'])}</div>" if message.get("note") else "")
+        + "</div>",
         unsafe_allow_html=True,
     )
 
-    if review:
-        patch = _gate_review(payload, index)
-        action = "تأیید و ثبت در آرشیو"
-    elif sid == "extract":
-        patch = {"draft": _gate_extract(payload, index)}
-        action = _GATE_ACTION["extract"]
-    elif sid == "references":
-        patch = {"references": _gate_references(payload.get("rows") or [], index)}
-        action = _GATE_ACTION["references"]
-    elif sid == "timeline":
-        patch = {"timeline": _gate_timeline(payload.get("rows") or [], index)}
-        action = _GATE_ACTION["timeline"]
-    elif sid == "similar":
-        patch = {"similar": _gate_similar(payload, index)}
-        action = _GATE_ACTION["similar"]
-    elif sid == "labels":
-        patch = {"labels": _gate_labels(payload.get("labels") or [], index)}
-        action = _GATE_ACTION["labels"]
-    else:
-        patch, action = {}, "تأیید و ادامه"
+    if message.get("done") or not askflow.active(message.get("run_id")):
+        return
+    if (askflow.current() or {}).get("id") != message.get("qid"):
+        return
 
-    go, stop = st.columns([3, 1])
-    if go.button(action, key=f"wf_go_{index}_{sid}", type="primary",
-                 use_container_width=True):
-        with st.spinner("در حال ثبت…" if review else "در حال اجرای گام بعدی…"):
-            _wf_advance(cfg, run_id, user_patch=patch)
-        st.rerun()
-    if stop.button("توقف", key=f"wf_stop_{index}_{sid}", use_container_width=True):
-        _wf_abandon(run_id)
+    quick = message.get("chips") or []
+    if quick:
+        for column, label in zip(st.columns(len(quick) + 1), quick):
+            if column.button(label, key=f"ask_{index}_{label}", use_container_width=True):
+                _say("user", text=label)
+                st.rerun()
+    st.caption("یا پاسخ را در کادر پایین بنویسید.")
+
+
+def _render_filed(message: dict, index: int) -> None:
+    entry_id = message.get("entry_id") or ""
+    st.markdown(
+        "<div class='ask'>" + stamp("مدخل در آرشیو ثبت شد", "teal")
+        + (f"<div class='ask-note'>شناسهٔ مدخل: {esc(entry_id)}</div>" if entry_id else "")
+        + "</div>",
+        unsafe_allow_html=True,
+    )
+    if entry_id and st.button("باز کردن در «ویرایش مدخل‌ها»", key=f"filed_{index}"):
+        st.session_state["editor_entry"] = entry_id
+        st.session_state["view"] = "editor"
         st.rerun()
 
 
-def _gate_review(payload: dict, index: int) -> dict:
-    """The single «تأیید یک‌باره» panel: the whole record at a glance, a short
-    form for only the fields that came back empty, and the timeline / similar /
-    labels tucked into an expander for anyone who wants to adjust them."""
-    draft = dict(payload.get("draft") or {})
-    draft["entities"] = {**(draft.get("entities") or {})}
-    _draft_ticket(draft)
-
-    missing = payload.get("missing") or []
-    if missing:
-        st.caption("این‌ها در متن پیدا نشدند — اگر می‌دانید پر کنید (اختیاری):")
-        for path, fa in missing:
-            val = st.text_input(fa, key=f"wf_miss_{index}_{path}")
-            if val.strip():
-                if path.startswith("entities."):
-                    draft["entities"][path.split(".", 1)[1]] = val.strip()
-                else:
-                    draft[path] = val.strip()
-
-    timeline = payload.get("timeline") or []
-    similar = payload.get("similar") or []
-    labels = payload.get("labels") or []
-    references = payload.get("references") or []
-    unresolved = [r for r in references if not r.get("resolved")]
-    if unresolved:
-        st.warning(
-            f"{fa_num(len(unresolved))} استناد به پایگاه قوانین متصل نشد — در «ویرایش جزئیات» "
-            "نام قانون/شمارهٔ ماده را اصلاح کنید یا تیک آن را بردارید."
-        )
-    with st.expander(
-        f"ویرایش جزئیات — فیلدها، مستندات ({fa_num(len(references))})، خط زمان ({fa_num(len(timeline))})، "
-        f"مشابه‌ها ({fa_num(len(similar))})، برچسب‌ها ({fa_num(len(labels))})"
-    ):
-        st.caption("فیلدهای مدخل")
-        draft = _edit_fields(draft, index)
-        st.caption("مستندات قانونی — ارجاع‌های استخراج‌شده و اتصال آن‌ها به پایگاه قوانین")
-        references = _gate_references(references, index)
-        st.caption("خط زمان")
-        timeline = _gate_timeline(timeline, index)
-        st.caption("پرونده‌های مشابه — تیک موارد نامرتبط را بردارید")
-        similar = _gate_similar({"items": similar, "tool_log": payload.get("tool_log")}, index)
-        st.caption("برچسب‌ها")
-        labels = _gate_labels(labels, index)
-
-    return {"draft": draft, "timeline": timeline, "similar": similar, "labels": labels,
-            "references": references}
-
-
-def _edit_fields(draft: dict, index: int) -> dict:
-    """A table of every plain (string) field in the draft, editable. Nested
-    `entities.*` are flattened with a prefix and re-nested on the way out."""
-    rows = [
-        {"فیلد": _FIELD_FA.get(k, k), "کلید": k, "مقدار": "" if v is None else str(v)}
-        for k, v in draft.items() if isinstance(v, str) or v is None
-    ] + [
-        {"فیلد": _FIELD_FA.get(k, k), "کلید": f"entities.{k}", "مقدار": "" if v is None else str(v)}
-        for k, v in (draft.get("entities") or {}).items() if isinstance(v, str) or v is None
-    ]
-    edited = st.data_editor(
-        rows, use_container_width=True, hide_index=True, key=f"wf_draft_{index}",
-        column_config={"کلید": None},
-    )
-    merged = {**draft, "entities": {**(draft.get("entities") or {})}}
-    for row in edited:
-        key, value = row["کلید"], row["مقدار"]
-        if key.startswith("entities."):
-            merged["entities"][key[len("entities."):]] = value
-        elif not isinstance(merged.get(key), (list, dict)):
-            merged[key] = value
-    return merged
-
-
-def _gate_extract(draft: dict, index: int) -> dict:
-    _draft_ticket(draft)
-    with st.expander("ویرایش فیلدها"):
-        return _edit_fields(draft, index)
-
-
-def _gate_timeline(rows: list[dict], index: int) -> list[dict]:
-    edited = st.data_editor(
-        rows or [{"date": "", "title": "", "detail": "", "source": ""}],
-        use_container_width=True, hide_index=True, num_rows="dynamic",
-        key=f"wf_tl_{index}",
-        column_config={
-            "date": st.column_config.TextColumn("تاریخ"),
-            "title": st.column_config.TextColumn("رویداد", width="large"),
-            "detail": st.column_config.TextColumn("توضیح"),
-            "source": st.column_config.TextColumn("منبع"),
-        },
-    )
-    return [r for r in edited if str(r.get("title") or "").strip()]
-
-
-def _gate_similar(payload: dict, index: int) -> list[dict]:
-    items = payload.get("items") or []
-    tool_log = payload.get("tool_log") or []
-    if tool_log:
-        with st.expander(f"ردپای عامل — {fa_num(len(tool_log))} فراخوانی ابزار", expanded=False):
-            for call in tool_log:
-                st.caption(f"• {call.get('summary', '')}")
-    if not items:
-        st.caption("موردی یافت نشد — می‌توانید بدون پیوند ادامه دهید.")
-        return []
-    edited = st.data_editor(
-        [{"نگه‌داری": bool(it.get("keep", True)), "عنوان": it.get("title", ""),
-          "نتیجهٔ گذشته": it.get("outcome", ""), "علت پیوند": it.get("why", "")} for it in items],
-        use_container_width=True, hide_index=True, key=f"wf_sim_{index}",
-        column_config={
-            "عنوان": st.column_config.TextColumn(disabled=True),
-            "نتیجهٔ گذشته": st.column_config.TextColumn(disabled=True),
-            "علت پیوند": st.column_config.TextColumn(disabled=True),
-        },
-    )
-    return [{**it, "keep": bool(row["نگه‌داری"])} for it, row in zip(items, edited)]
-
-
-def _gate_references(rows: list[dict], index: int) -> list[dict]:
-    """The citations the extractor found, each matched (or not) to a row of the
-    legal-context base. Law and article are editable so an unresolved one can
-    be fixed here; `commit` re-resolves anything that changed."""
-    if not rows:
-        st.caption("استنادی در متن یافت نشد — می‌توانید یکی اضافه کنید یا ادامه دهید.")
-    edited = st.data_editor(
-        [{"نگه‌داری": bool(r.get("keep", True)), "قانون": r.get("law", ""),
-          "ماده": r.get("article", "") or "", "نحوهٔ استناد": r.get("context", ""),
-          "متصل": "✓" if r.get("resolved") else "✕"} for r in rows],
-        use_container_width=True, hide_index=True, num_rows="dynamic", key=f"wf_ref_{index}",
-        column_config={"متصل": st.column_config.TextColumn(disabled=True, width="small")},
-    )
-    out = []
-    for i, row in enumerate(edited):
-        base = rows[i] if i < len(rows) else {}
-        law, art = str(row.get("قانون") or "").strip(), str(row.get("ماده") or "").strip()
-        if not law:
-            continue
-        changed = law != base.get("law") or art != (base.get("article") or "")
-        out.append({
-            **base, "law": law, "article": art, "context": str(row.get("نحوهٔ استناد") or "").strip(),
-            "keep": bool(row.get("نگه‌داری", True)),
-            # a hand-edited citation loses its old link; commit re-resolves it
-            "ref_id": None if changed else base.get("ref_id"),
-            "resolved": False if changed else bool(base.get("resolved")),
-        })
-    return out
-
-
-def _gate_labels(labels: list[str], index: int) -> list[str]:
-    from app.rag.taxonomy import leaves
-
-    options = list(dict.fromkeys([*labels, *leaves()]))
-    return st.multiselect(
-        "برچسب‌ها — بردارید یا اضافه کنید", options, default=labels,
-        key=f"wf_lbl_{index}", accept_new_options=True,
-    )
+def _render_wf_failed(cfg: dict, message: dict, index: int) -> None:
+    label = _STEP_FA.get(message.get("step", ""), message.get("step", ""))
+    st.error(f"گام «{label}» ناموفق بود — {message.get('error') or ''}")
+    cols = st.columns([3, 1])
+    if cols[0].button("تلاش دوباره", key=f"wf_retry_{index}", type="primary",
+                      use_container_width=True):
+        with st.spinner("در حال اجرای دوبارهٔ گام…"):
+            view = _wf_advance(cfg, message["run_id"])
+        _after_advance(cfg, view)
+        st.rerun()
+    if cols[1].button("رهاکردن", key=f"wf_stop_fail_{index}", use_container_width=True):
+        _wf_abandon(message["run_id"])
+        askflow.clear()
+        st.rerun()
 
 
 def _render(cfg: dict, message: dict, index: int) -> None:
@@ -716,6 +705,25 @@ def _render(cfg: dict, message: dict, index: int) -> None:
         return
 
     with st.chat_message("assistant", avatar="⚖️"):
+        # The archive conversation's own turns: a question, its acknowledgement,
+        # the filing, a failed step. Each is its own turn in the transcript.
+        kind = message.get("kind")
+        if kind == "ask":
+            _render_ask(cfg, message, index)
+            return
+        if kind == "ack":
+            st.markdown(
+                f"<div class='ack'>{esc(message.get('text', ''))}</div>",
+                unsafe_allow_html=True,
+            )
+            return
+        if kind == "filed":
+            _render_filed(message, index)
+            return
+        if kind == "wf_failed":
+            _render_wf_failed(cfg, message, index)
+            return
+
         intent = message.get("intent")
         if intent:
             st.markdown(
@@ -831,6 +839,18 @@ def _answer_pending(cfg: dict) -> None:
     if turn.get("error") or turn.get("answered"):
         return
     text = turn["text"]
+
+    # An archive conversation in progress owns the next turn: the text is an
+    # answer to the question on screen, not a new message to route.
+    if askflow.active():
+        try:
+            _archive_turn(cfg, text)
+        except Exception as error:  # noqa: BLE001
+            turn["error"] = f"{type(error).__name__}: {error}"
+        else:
+            turn["answered"] = True
+        st.rerun()
+        return
 
     # Pre-flight: a doomed call (model unreachable) should fail fast and clearly,
     # not fire off, 500, and leave the turn to be retried forever.
