@@ -84,6 +84,8 @@ class MockProvider(LLMProvider):
             text = self._extract(prompt)
         elif "propose" in sys_l and "label" in sys_l:
             text = json.dumps({"labels": []}, ensure_ascii=False)
+        elif "merge a user's reply" in sys_l:
+            text = self._merge(prompt)
         else:
             text = self._answer(prompt, system or "")
         return LLMResponse(text=text, model=f"mock/{self.model}", input_tokens=len(prompt) // 4,
@@ -173,6 +175,32 @@ class MockProvider(LLMProvider):
             "legal_refs": uniq,
             "tags": [t for t in [m_line.group(1).strip() if m_line else "", "بیمه"] if t],
         }
+        return json.dumps(data, ensure_ascii=False)
+
+    def _merge(self, prompt: str) -> str:
+        """Conversation mode: read labelled lines and a case number out of the
+        user's reply — the same shape a real model returns for MERGE_SCHEMA."""
+        reply = prompt.split("User reply:", 1)[-1].split("Respond with JSON only", 1)[0].strip()
+        low = reply.lower()
+        ent: dict = {}
+        data: dict = {"title": None, "summary": None, "entities": ent,
+                      "confirm": any(w in low for w in ("تأیید", "تایید", "ثبت کن", "درست است")) and len(reply) < 40,
+                      "cancel": any(w in low for w in ("انصراف", "لغو")) and len(reply) < 40, "note": None}
+        labels = {"عنوان": ("title", None), "خلاصه": ("summary", None), "مرجع": (None, "court"),
+                  "دادگاه": (None, "court"), "نوع دعوا": (None, "case_type"), "رشته": (None, "insurance_line"),
+                  "نتیجه": (None, "outcome"), "وضعیت": (None, "status")}
+        for line in reply.splitlines():
+            m = re.match(r"^\s*([^:：]{2,24}?)\s*[:：]\s*(.+?)\s*$", line)
+            if not m:
+                continue
+            top, key = labels.get(m.group(1).strip(), (None, None))
+            if top:
+                data[top] = m.group(2)
+            elif key:
+                ent[key] = m.group(2)
+        m = _CASE_NO.search(reply)
+        if m:
+            ent["case_number"] = _digits(m.group(1))
         return json.dumps(data, ensure_ascii=False)
 
     def _answer(self, prompt: str, system: str) -> str:

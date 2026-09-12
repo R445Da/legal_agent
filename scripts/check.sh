@@ -39,6 +39,8 @@ check "assistant law + provenance" '"provenance"' "${AUTH[@]}" -X POST "$BASE/as
 check "assistant agent"  '"tool_trail"'         "${AUTH[@]}" -X POST "$BASE/assistant" \
       -H 'content-type: application/json' -d '{"intent":"agent","text":"پرونده‌های بازیافت از رانندهٔ مقصر طبق ماده ۱۶ چطور تمام شده‌اند؟"}'
 check "answers"         '"answers"'            "${AUTH[@]}" "$BASE/answers?limit=5"
+check "run start (conversation)" '"waiting":true' "${AUTH[@]}" -X POST "$BASE/runs" \
+      -H 'content-type: application/json' -d '{"mode":"conversation","text":"صورت‌جلسه شعبه ۱. خواهان شرکت الف با وکالت آقای کریمی، خوانده آقای مرادی. موضوع: مطالبه وجه. قاضی به کارشناسی ارجاع داد."}'
 check "auth enforced"   '401'                  -o /dev/null -w '%{http_code}' -X POST "$BASE/ask" \
       -H 'content-type: application/json' -d '{"question":"x"}'
 

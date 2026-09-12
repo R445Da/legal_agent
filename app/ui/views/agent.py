@@ -21,6 +21,7 @@ import datetime as dt
 import streamlit as st
 
 from app.llm.meter import usage_of
+from app.rag import conversation
 from app.rag import provenance as prov
 from app.rag import runs, transcribe as stt, workflow
 from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route
@@ -359,6 +360,7 @@ def _draft_for_archive(
         "review": "در حال استخراج مدخل — یک بار برای بازبینی می‌ایستد…",
         "steps": "در حال آغاز خط لوله — گام‌به‌گام…",
         "auto": "در حال استخراج و ثبت خودکار مدخل…",
+        "conversation": "در حال استخراج مدخل — آنچه کم باشد را می‌پرسم…",
     }.get(mode, "در حال آغاز خط لوله…")
     with st.status(spinner, expanded=False) as status:
         view = _wf_start(cfg, text, source, mode=mode, forced=forced)
@@ -370,7 +372,61 @@ def _draft_for_archive(
                 label="آمادهٔ بازبینی" if awaiting else "خط لوله آغاز شد",
                 state="complete",
             )
-    _say("assistant", intent="archive", run_id=view["id"])
+    question = conversation.last_question(view) if conversation.is_waiting(view) else None
+    if question:
+        # The next composer message answers this run, not the router.
+        st.session_state["pending_run"] = view["id"]
+    _say("assistant", intent="archive", run_id=view["id"], text=question)
+
+
+def _pending_conversation() -> str | None:
+    """The conversation-mode run waiting for the user's next message, if any.
+
+    The id is cached in session state but re-derived from the transcript on
+    every call, so a rerun or a fresh tab that still holds the chat history
+    resumes the same run; the database decides whether it is really waiting.
+    """
+    run_id = st.session_state.get("pending_run")
+    if not run_id:
+        for message in reversed(_history()):
+            if message.get("role") == "assistant" and message.get("intent") == "archive" and message.get("run_id"):
+                run_id = message["run_id"]
+                break
+    if not run_id:
+        return None
+    if conversation.is_waiting(_wf_load(run_id)):
+        st.session_state["pending_run"] = run_id
+        return run_id
+    st.session_state.pop("pending_run", None)
+    return None
+
+
+def _conversation_turn(cfg: dict, run_id: str, text: str) -> None:
+    """One reply of a «گفتگویی» run: merge it, then either the next question
+    or the committed record shows up as the assistant's message."""
+    async def _go():
+        async with session() as s:
+            return await conversation.turn(s, run_id, cfg["llm"], text)
+
+    with st.status("در حال به‌روزرسانی پیش‌نویس از پاسخ شما…", expanded=False) as status:
+        view = aio.run(_go())
+        label = {"committed": "مدخل ثبت شد", "awaiting_input": "پرسش بعدی",
+                 "abandoned": "ثبت متوقف شد"}.get(view["status"], "ادامهٔ خط لوله")
+        status.update(label=label, state="complete")
+    if not conversation.is_waiting(view):
+        st.session_state.pop("pending_run", None)
+    _say("assistant", intent="archive", run_id=run_id,
+         text=conversation.last_question(view) if conversation.is_waiting(view) else None)
+
+
+def _latest_for_run(index: int, run_id: str | None) -> bool:
+    """Only the newest message of a run draws the live pipeline; older ones
+    keep their question text so the dialogue reads top to bottom."""
+    if not run_id:
+        return True
+    return not any(
+        m.get("run_id") == run_id and i > index for i, m in enumerate(_history())
+    )
 
 
 def _source_preview(cfg: dict) -> None:
@@ -590,6 +646,14 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
     payload = step.get("payload") or {}
     review = sid == "labels" and payload.get("mode") == "review"
 
+    if sid == "labels" and payload.get("mode") == "conversation":
+        st.markdown(
+            "<span class='intent-badge archive'>در انتظار پاسخ شما در گفتگو</span>",
+            unsafe_allow_html=True,
+        )
+        _gate_conversation(cfg, run_id, payload, index)
+        return
+
     heading = "بازبینی نهایی و ثبت" if review else _STEP_FA.get(sid, sid)
     st.markdown(
         f"<span class='intent-badge archive'>در انتظار تأیید شما — {esc(heading)}</span>",
@@ -625,6 +689,48 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
         st.rerun()
     if stop.button("توقف", key=f"wf_stop_{index}_{sid}", use_container_width=True):
         _wf_abandon(run_id)
+        st.rerun()
+
+
+def _gate_conversation(cfg: dict, run_id: str, payload: dict, index: int) -> None:
+    """The «گفتگویی» stop: the assistant's question as a bubble, the draft so
+    far, and the composer as the answer box. No table — the reply is typed
+    in chat and merged by `conversation.turn()`."""
+    message = payload.get("message") or ""
+    st.markdown(
+        f"<div class='answer'>{esc(message).replace(chr(10), '<br>')}</div>",
+        unsafe_allow_html=True,
+    )
+    draft = dict(payload.get("draft") or {})
+    with st.expander("پیش‌نویس فعلی"):
+        _draft_ticket(draft)
+        references = payload.get("references") or []
+        unresolved = [r for r in references if not r.get("resolved")]
+        if unresolved:
+            st.caption(f"{fa_num(len(unresolved))} استناد هنوز به پایگاه قوانین متصل نشده است.")
+    turns = (payload.get("conversation") or {}).get("turns") or []
+    if len(turns) > 1:
+        with st.expander(f"گفتگوی ثبت تا این‌جا ({fa_num(len(turns))} پیام)"):
+            for t in turns:
+                who = "کاربر" if t.get("role") == "user" else "دستیار"
+                st.markdown(
+                    f"<div class='kv'><span class='k'>{who}</span>"
+                    f"<span style='white-space:pre-wrap'>{esc(t.get('text', ''))}</span></div>",
+                    unsafe_allow_html=True,
+                )
+    st.caption("پاسخ را در کادر پایین بنویسید — مثلاً «شمارهٔ پرونده: ۱۴۰۲…»، «رد شو» یا «تأیید».")
+
+    missing = payload.get("missing") or []
+    go, stop = st.columns([3, 1])
+    if not missing and go.button("ثبت همین حالا", key=f"wf_go_{index}_conversation", type="primary",
+                                 use_container_width=True):
+        with st.spinner("در حال ثبت…"):
+            _wf_advance(cfg, run_id, user_patch={"draft": draft})
+        st.session_state.pop("pending_run", None)
+        st.rerun()
+    if stop.button("توقف", key=f"wf_stop_{index}_conversation", use_container_width=True):
+        _wf_abandon(run_id)
+        st.session_state.pop("pending_run", None)
         st.rerun()
 
 
@@ -814,7 +920,15 @@ def _render(cfg: dict, message: dict, index: int) -> None:
                 unsafe_allow_html=True,
             )
         if intent == "archive":
-            _render_pipeline(cfg, message, index)
+            if _latest_for_run(index, message.get("run_id")):
+                _render_pipeline(cfg, message, index)
+            else:
+                if message.get("text"):
+                    st.markdown(
+                        f"<div class='answer'>{esc(message['text']).replace(chr(10), '<br>')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                st.caption("ادامهٔ این ثبت در پیام‌های بعدی است.")
             return
 
         if intent == "unclear":
@@ -939,27 +1053,41 @@ def _answer_pending(cfg: dict) -> None:
     # A per-message intent (from a clarification quick-reply) wins over the
     # sidebar selector, which applies to whatever the user types next.
     forced = turn.get("forced_intent") or st.session_state.get("agent_intent") or "auto"
+    # A conversation-mode filing that is waiting for an answer takes the
+    # message before the router does — unless the user pinned another intent.
+    pending = _pending_conversation() if forced in ("auto", "archive") else None
     with st.chat_message("assistant", avatar="⚖️"):
         try:
-            with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
-                decision = aio.run(route(
-                    _active_llm(cfg), text,
-                    forced=None if forced == "auto" else forced,
-                ))
-                status.update(
-                    label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
-                          + f" · مدل: {cfg['entry']['label']}",
-                    state="complete",
+            if pending:
+                st.markdown(
+                    f"<span class='intent-badge archive'>{esc(_INTENT_FA['archive'])} — پاسخ در گفتگو</span>",
+                    unsafe_allow_html=True,
                 )
-            intent = decision.intent
-            st.markdown(
-                f"<span class='intent-badge {intent}'>{esc(_INTENT_FA.get(intent, intent))}</span>",
-                unsafe_allow_html=True,
-            )
-            # Same five-way vocabulary the FastAPI /assistant path uses — the
-            # decision comes from one `route()`, only the execution differs
-            # (streamed here, a dict there).
-            if intent == "unclear":
+                _conversation_turn(cfg, pending, text)
+                intent = "archive"
+                decision = None
+            else:
+                with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
+                    decision = aio.run(route(
+                        _active_llm(cfg), text,
+                        forced=None if forced == "auto" else forced,
+                    ))
+                    status.update(
+                        label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
+                              + f" · مدل: {cfg['entry']['label']}",
+                        state="complete",
+                    )
+                intent = decision.intent
+                st.markdown(
+                    f"<span class='intent-badge {intent}'>{esc(_INTENT_FA.get(intent, intent))}</span>",
+                    unsafe_allow_html=True,
+                )
+            # Same vocabulary the FastAPI /assistant path uses — the decision
+            # comes from one `route()`, only the execution differs (streamed
+            # here, a dict there).
+            if pending:
+                pass
+            elif intent == "unclear":
                 _clarify(decision, text)
             elif intent == "chat":
                 _chat_reply(cfg, text)
@@ -1059,7 +1187,7 @@ def _clarify(decision, text: str) -> None:
 
 
 _WF_MODE_FA = {
-    "review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار",
+    "review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار", "conversation": "گفتگویی",
 }
 
 
@@ -1082,13 +1210,14 @@ def _controls(cfg: dict) -> None:
         )
     with right:
         st.selectbox(
-            "حالت ثبت مدخل", ["review", "steps", "auto"],
+            "حالت ثبت مدخل", ["review", "conversation", "steps", "auto"],
             format_func=lambda k: _WF_MODE_FA[k],
             key="wf_mode", label_visibility="collapsed",
             help=(
                 "«تأیید یک‌باره»: همه‌چیز اجرا می‌شود و فقط یک‌بار برای بازبینی "
-                "می‌ایستد و تنها فیلدهای خالی را می‌پرسد. «گام‌به‌گام»: در هر مرحله "
-                "می‌ایستد. «خودکار»: بدون توقف ثبت می‌کند."
+                "می‌ایستد و تنها فیلدهای خالی را می‌پرسد. «گفتگویی»: دستیار می‌گوید چه "
+                "چیزی را برداشته و آنچه کم است را در همین گفتگو می‌پرسد. «گام‌به‌گام»: "
+                "در هر مرحله می‌ایستد. «خودکار»: بدون توقف ثبت می‌کند."
             ),
         )
 

@@ -37,7 +37,7 @@ from app.rag.orchestrator import (
 )
 from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
-from app.rag import casebase, catalog, graph, lawbase
+from app.rag import casebase, catalog, conversation, graph, lawbase, workflow
 from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
@@ -657,6 +657,9 @@ class AssistantRequest(BaseModel):
     # query | law | cases | agent | archive | analytics | chat — skips the router.
     intent: str | None = None
     model: str | None = None
+    # With intent="archive": start a persisted pipeline run in this mode
+    # (review | steps | auto | conversation) instead of returning a bare draft.
+    mode: str | None = None
 
 
 class CommitRequest(BaseModel):
@@ -674,7 +677,63 @@ async def assistant(req: AssistantRequest):
     if not llm.is_available():
         raise HTTPException(503, "LLM provider is not available.")
     async with SessionLocal() as session:
+        if req.intent == "archive" and req.mode:
+            return await _start_run(session, llm, req.text, mode=req.mode, source=None)
         return await run_assistant(session, llm, req.text, force_intent=req.intent)
+
+
+def _run_reply(view: dict) -> dict:
+    """A run view plus the conversation's next question, when it is waiting."""
+    return {"run": view, "waiting": conversation.is_waiting(view),
+            "message": conversation.last_question(view) if conversation.is_waiting(view) else None}
+
+
+async def _start_run(session, llm, text: str, *, mode: str, source: str | None) -> dict:
+    import datetime as _dt
+
+    if mode not in workflow.RUN_MODES:
+        raise HTTPException(422, f"mode must be one of {', '.join(workflow.RUN_MODES)}")
+    view = await workflow.start(
+        session, raw_text=text, source=source or f"api/{_dt.datetime.now():%Y%m%d-%H%M%S}",
+        llm=llm, mode=mode, forced_intent="archive",
+    )
+    return {"intent": "archive", **_run_reply(view)}
+
+
+class RunStartRequest(BaseModel):
+    text: str
+    source: str | None = None
+    mode: str = "review"   # review | steps | auto | conversation
+    model: str | None = None
+
+
+class RunReplyRequest(BaseModel):
+    text: str
+    model: str | None = None
+
+
+@app.post("/runs", dependencies=auth)
+async def runs_start(req: RunStartRequest):
+    """Start a persisted entry-building run (the same engine the chat uses).
+    In `conversation` mode the response carries the assistant's question;
+    answer it with POST /runs/{run_id}/reply."""
+    llm = _llm(req.model)
+    if not llm.is_available():
+        raise HTTPException(503, "LLM provider is not available.")
+    async with SessionLocal() as session:
+        return await _start_run(session, llm, req.text, mode=req.mode, source=req.source)
+
+
+@app.post("/runs/{run_id}/reply", dependencies=auth)
+async def runs_reply(run_id: str, req: RunReplyRequest):
+    """One turn of a conversation-mode run: merge the reply, re-ask or commit."""
+    llm = _llm(req.model)
+    async with SessionLocal() as session:
+        try:
+            view = await conversation.turn(session, run_id, llm, req.text)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return _run_reply(view)
 
 
 @app.post("/assistant/commit", dependencies=auth)
