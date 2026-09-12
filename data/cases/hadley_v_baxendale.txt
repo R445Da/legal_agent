@@ -1,0 +1,24 @@
+Hadley v. Baxendale, 156 Eng. Rep. 145 (Court of Exchequer 1854)
+Topic: Contract damages — foreseeability / remoteness of loss
+
+Excerpt:
+
+The plaintiffs operated a mill that was stopped because of a broken crank
+shaft. They contracted with the defendant carriers to take the broken
+shaft to an engineer as a pattern for a new one. The carriers delayed
+delivery, and the mill remained idle longer than it otherwise would have.
+The plaintiffs sued for lost profits during the extra days of stoppage.
+
+The court laid down the rule for recoverable damages for breach of
+contract. Damages should be such as may fairly and reasonably be
+considered either (1) arising naturally, according to the usual course of
+things, from the breach itself, or (2) such as may reasonably be supposed
+to have been in the contemplation of both parties, at the time they made
+the contract, as the probable result of the breach.
+
+Where the special circumstances under which the contract was actually made
+were never communicated by the plaintiff to the defendant, the defendant
+could only be held liable for the loss that would generally follow from
+breach in the ordinary run of cases. Because the carriers were not told
+that the mill would stay idle without the shaft, the lost profits were too
+remote and were not recoverable.

@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="fa">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Legal RAG</title>
+<style>
+  :root {
+    --bg: #f7f7f6; --panel: #fff; --border: #e3e3e0; --text: #1a1a18;
+    --muted: #6b6b66; --accent: #7c3a2d; --accent-soft: #f0e4e1;
+    --code-bg: #f2f2f0; --ok: #4a9e5c; --bad: #c1554a;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a19; --panel: #232322; --border: #35352f; --text: #ececE8;
+      --muted: #9a9a92; --accent: #e0a08f; --accent-soft: #3a2b26;
+      --code-bg: #2b2b29; --ok: #5cb46e; --bad: #e0796c;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Vazirmatn, Tahoma, Arial, sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 26px 20px 90px; }
+  a { color: var(--accent); }
+  :dir(rtl), [dir=rtl] { text-align: right; }
+
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; flex: 1; }
+  .health { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; background: var(--panel); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #b8b8b0; flex: none; }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); }
+  .icon-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 5px 9px; font-size: 14px; cursor: pointer; }
+  .icon-btn:hover { color: var(--text); }
+  #modelSel { font-size: 12px; max-width: 160px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; flex-wrap: wrap; }
+  .tab { padding: 8px 13px; font-size: 14px; color: var(--muted); cursor: pointer;
+    border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .pad { padding: 16px; }
+  textarea, input[type=text], input[type=password] {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+    color: var(--text); padding: 10px 12px; font: inherit; }
+  textarea { resize: vertical; min-height: 76px; }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  button.go { background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 9px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.go:disabled { opacity: .55; cursor: default; }
+  .ghost { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 8px;
+    padding: 8px 14px; font: inherit; cursor: pointer; }
+  label.k { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  select { font: inherit; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); }
+  .hint { font-size: 12px; color: var(--muted); margin-inline-start: auto; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .chip { font-size: 12.5px; color: var(--muted); background: var(--panel); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 11px; cursor: pointer; }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+  .chip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+  .chip:disabled { opacity: .4; cursor: not-allowed; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+  .result { margin-top: 22px; }
+  .answer { padding: 18px; white-space: pre-wrap; }
+  .cite { display: inline-block; min-width: 18px; text-align: center; background: var(--accent-soft);
+    color: var(--accent); border-radius: 5px; padding: 0 5px; font-size: 12px; font-weight: 700; cursor: pointer; text-decoration: none; }
+  .meta { padding: 10px 18px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted);
+    display: flex; gap: 16px; flex-wrap: wrap; }
+  h2.sec { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 12px; }
+
+  .src { padding: 14px 16px; margin-bottom: 10px; }
+  .src.flash { animation: flash 1.2s ease; }
+  @keyframes flash { 0%,25% { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); } }
+  .src-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
+  .src-n { background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 12px; border-radius: 5px; padding: 1px 7px; flex: none; }
+  .src-title { font-weight: 600; font-size: 14px; flex: 1; min-width: 120px; }
+  .bar { width: 90px; height: 4px; background: var(--code-bg); border-radius: 2px; overflow: hidden; flex: none; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .sim { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .src-text { font-size: 13.5px; background: var(--code-bg); border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; max-height: 220px; overflow: auto; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: start; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  td.num { text-align: end; font-variant-numeric: tabular-nums; }
+  .del { background: none; border: 1px solid var(--border); color: var(--bad); border-radius: 6px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
+
+  .draft label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 12px 0 4px; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 13.5px; }
+  .kv b { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .taglist { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .err { color: var(--bad); font-size: 13px; margin-top: 10px; }
+  .note { color: var(--muted); font-size: 13px; }
+  .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: r .7s linear infinite; vertical-align: -2px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .modes { display: flex; gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .modes button { background: var(--panel); border: 0; border-inline-start: 1px solid var(--border);
+    color: var(--muted); font: inherit; font-size: 13px; padding: 6px 12px; cursor: pointer; }
+  .modes button:first-child { border-inline-start: 0; }
+  .modes button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .mic { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--panel);
+    color: var(--text); font-size: 17px; cursor: pointer; flex: none; }
+  .mic.rec { background: var(--bad); color: #fff; border-color: var(--bad); animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .6; } }
+
+  .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.4); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 10; }
+  .modal-bg.on { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); width: 460px; max-width: 100%; padding: 20px; }
+  .modal h3 { margin: 0 0 4px; font-size: 16px; }
+  .field { margin-top: 14px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; text-transform: uppercase; letter-spacing: .05em; }
+  .modal .row { justify-content: flex-end; margin-top: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>Legal RAG</h1>
+    <select id="modelSel" title="active LLM"></select>
+    <span class="health" id="health" title="">connecting…</span>
+    <button class="icon-btn" id="settingsBtn" title="Settings">⚙</button>
+  </header>
+
+  <div class="tabs">
+    <div class="tab on" data-tab="assistant">دستیار</div>
+    <div class="tab" data-tab="ask">Ask</div>
+    <div class="tab" data-tab="search">Search</div>
+    <div class="tab" data-tab="eval">Eval</div>
+    <div class="tab" data-tab="bench">Bench</div>
+    <div class="tab" data-tab="library">Library</div>
+  </div>
+
+  <!-- ASSISTANT -->
+  <section id="tab-assistant">
+    <div class="card pad">
+      <textarea id="a" dir="rtl" placeholder="سؤال بپرسید، یک جلسه را دیکته کنید، یا آمار آرشیو را بخواهید…"></textarea>
+      <div class="row">
+        <button class="mic" id="mic" title="Speech to text (Phase 2)" disabled>🎙</button>
+        <button class="go" id="aGo">ارسال</button>
+        <div class="modes" id="aModes" dir="rtl">
+          <button data-m="" class="on">خودکار</button>
+          <button data-m="archive">آرشیو</button>
+          <button data-m="query">پرسش</button>
+          <button data-m="analytics">آمار</button>
+        </div>
+        <span class="hint">⌘/Ctrl + Enter</span>
+      </div>
+      <div class="chips" id="aSamples"></div>
+    </div>
+    <div class="result" id="aResult"></div>
+  </section>
+
+  <!-- ASK -->
+  <section id="tab-ask" hidden>
+    <div class="card pad">
+      <textarea id="q" dir="rtl" placeholder="پرسش مستقیم از آرشیو…"></textarea>
+      <div class="row">
+        <button class="go" id="askGo">Ask</button>
+        <label class="k">top-k
+          <select id="askK"><option>3</option><option selected>5</option><option>8</option><option>10</option></select>
+        </label>
+        <span class="hint">⌘/Ctrl + Enter</span>
+      </div>
+    </div>
+    <div class="result" id="askResult"></div>
+  </section>
+
+  <!-- SEARCH -->
+  <section id="tab-search" hidden>
+    <div class="card pad">
+      <input type="text" id="s" dir="rtl" placeholder="جستجوی برداری — بازیابی خام بدون مدل زبانی" />
+      <div class="row">
+        <button class="go" id="searchGo">Search</button>
+        <label class="k">top-k
+          <select id="searchK"><option>3</option><option>5</option><option selected>8</option><option>10</option><option>15</option></select>
+        </label>
+      </div>
+    </div>
+    <div class="result" id="searchResult"></div>
+  </section>
+
+  <!-- EVAL -->
+  <section id="tab-eval" hidden>
+    <div class="card pad">
+      <p class="note" style="margin-top:0">Score retrieval against <code>eval/farsi.jsonl</code>. Switch the model above, re-run, compare.</p>
+      <div class="row">
+        <button class="go" id="evalGo">اجرای ارزیابی</button>
+        <label class="k">top-k <select id="evalK"><option>3</option><option selected>5</option><option>8</option><option>10</option></select></label>
+        <label class="k"><input type="checkbox" id="evalAnswers" /> با پاسخ مدل (کند)</label>
+      </div>
+      <div id="evalResult"></div>
+    </div>
+  </section>
+
+  <!-- BENCH -->
+  <section id="tab-bench" hidden>
+    <div class="card pad">
+      <p class="note" style="margin-top:0">Run the same questions through several models — local and cloud — and compare the answers, latency, and token use. Retrieval is identical across models; only generation varies.</p>
+      <label class="k" style="display:block;margin-bottom:6px">Models to compare</label>
+      <div class="chips" id="benchModels"><span class="note">loading…</span></div>
+      <label class="k" style="display:block;margin:16px 0 6px">Questions — one per line</label>
+      <textarea id="benchQ" dir="rtl" placeholder="یک سؤال در هر خط…" style="min-height:92px"></textarea>
+      <div class="row">
+        <button class="go" id="benchGo">Run benchmark</button>
+        <label class="k">top-k <select id="benchK"><option>3</option><option selected>5</option><option>8</option><option>10</option></select></label>
+      </div>
+      <div id="benchResult"></div>
+    </div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section id="tab-library" hidden>
+    <div class="card pad">
+      <h2 class="sec" style="margin-top:0">Add a document</h2>
+      <input type="text" id="docTitle" placeholder="Title (optional)" />
+      <div style="height:8px"></div>
+      <input type="text" id="docSource" placeholder="Source id (unique key)" />
+      <div style="height:8px"></div>
+      <textarea id="docText" dir="auto" placeholder="Paste the document text…" style="min-height:110px"></textarea>
+      <div class="row">
+        <button class="go" id="ingestGo">Ingest</button>
+        <label class="k"><input type="checkbox" id="ingestReplace" /> replace if source exists</label>
+      </div>
+      <div id="ingestResult"></div>
+    </div>
+
+    <h2 class="sec">Stats</h2>
+    <div class="card pad" id="statsBox"><span class="note">loading…</span></div>
+
+    <h2 class="sec">Structured entries</h2>
+    <div class="card pad" id="entriesBox"><span class="note">loading…</span></div>
+
+    <h2 class="sec">Documents</h2>
+    <div class="card pad" id="libList"><span class="note">loading…</span></div>
+  </section>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3>Server connection</h3>
+    <p class="note">The web app can be hosted anywhere; point it at your RAG server.</p>
+    <div class="field"><label>Server URL</label><input type="text" id="cfgUrl" placeholder="https://xxxx.ngrok-free.app" /></div>
+    <div class="field"><label>API token</label><input type="password" id="cfgToken" placeholder="required if the server sets API_TOKEN" /></div>
+    <div id="cfgStatus" class="note" style="margin-top:12px"></div>
+    <div class="row"><button class="ghost" id="cfgCancel">Cancel</button><button class="go" id="cfgSave">Save &amp; test</button></div>
+  </div>
+</div>
+
+<script>
+const A_SAMPLES = [
+  "در پرونده کالای معیوب دادگاه چه تصمیمی گرفت؟",
+  "امروز جلسه پرونده کلاسه ۱۴۰۲۹۹ برگزار شد؛ خواهان شرکت آلفا با وکالت رضا کریمی، خوانده آقای مرادی. موضوع مطالبه وجه. قاضی پرونده را به کارشناسی ارجاع داد.",
+  "چند پرونده در آرشیو داریم و رضا کریمی وکیل چه کسانی بوده است؟",
+];
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+const cfg = {
+  get url()   { return localStorage.getItem("rag.url")   || location.origin; },
+  get token() { return localStorage.getItem("rag.token") || ""; },
+  get model() { return localStorage.getItem("rag.model") || ""; },
+  set model(m) { m ? localStorage.setItem("rag.model", m) : localStorage.removeItem("rag.model"); },
+  set(u, t)   { localStorage.setItem("rag.url", u.replace(/\/+$/, "")); localStorage.setItem("rag.token", t); },
+};
+async function api(path, { method = "GET", body } = {}) {
+  const headers = { "ngrok-skip-browser-warning": "true" };
+  if (body) headers["content-type"] = "application/json";
+  if (cfg.token) headers["authorization"] = "Bearer " + cfg.token;
+  const r = await fetch(cfg.url + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  const text = await r.text();
+  let data; try { data = JSON.parse(text); } catch { data = { detail: text }; }
+  if (!r.ok) throw new Error(`${r.status} — ${data.detail || r.statusText}`);
+  return data;
+}
+
+async function refreshHealth() {
+  try {
+    const j = await api("/health");
+    const ok = j.llm_available && j.indexed_chunks > 0;
+    $("#dot").className = "dot " + (ok ? "ok" : "bad");
+    $("#health").textContent = `${j.llm_provider}${j.llm_model ? " · " + j.llm_model : ""} · ${j.indexed_documents} docs`;
+    $("#health").title = JSON.stringify(j, null, 2) + "\n\nserver: " + cfg.url;
+    if (j.auth_required && !cfg.token) openSettings("This server requires an API token — paste the API_TOKEN from its .env.");
+    return j;
+  } catch (e) {
+    $("#dot").className = "dot bad";
+    $("#health").textContent = "not connected";
+    if (/^401/.test(e.message)) openSettings("Token missing or invalid — check the API token.");
+    throw e;
+  }
+}
+
+/* tabs */
+const TABS = ["assistant","ask","search","eval","bench","library"];
+for (const t of document.querySelectorAll(".tab")) {
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+    for (const name of TABS) $("#tab-" + name).hidden = name !== t.dataset.tab;
+    if (t.dataset.tab === "library") loadLibrary();
+  };
+}
+
+/* model switcher */
+let MODELS = [];       // [{id,label,provider,model,available}]
+let MODEL_CURRENT = "";
+const modelLabel = id => (MODELS.find(m => m.id === id) || {}).label || id;
+async function loadModels() {
+  try {
+    const j = await api("/models");
+    MODELS = j.models || [];
+    MODEL_CURRENT = j.current || "";
+    const sel = $("#modelSel");
+    const want = cfg.model || j.current;
+    const groups = {};
+    for (const m of MODELS) (groups[m.provider] ||= []).push(m);
+    sel.innerHTML = Object.entries(groups).map(([g, ms]) =>
+      `<optgroup label="${esc(g)}">` + ms.map(m =>
+        `<option value="${esc(m.id)}"${m.id === want ? " selected" : ""}${m.available ? "" : " disabled"}>${esc(m.label)}</option>`
+      ).join("") + `</optgroup>`).join("") || `<option>${esc(j.current || "—")}</option>`;
+    sel.onchange = () => { cfg.model = sel.value === MODEL_CURRENT ? "" : sel.value; };
+    buildBenchModels();
+  } catch { $("#modelSel").innerHTML = ""; }
+}
+const withModel = b => cfg.model ? { ...b, model: cfg.model } : b;
+
+/* shared render helpers */
+function linkCitations(text) {
+  return esc(text).replace(/\[(\d+(?:\s*,\s*\d+)*)\]/g, (m, nums) =>
+    nums.split(/\s*,\s*/).map(n => `<a class="cite" data-n="${n}" href="#src-${n}">${n}</a>`).join(""));
+}
+function sourceCard(c, prefix) {
+  const pct = Math.max(0, Math.min(100, Math.round(c.similarity * 100)));
+  return `<div class="card src" id="${prefix}-${c.n}">
+    <div class="src-head"><span class="src-n">${c.n}</span>
+      <span class="src-title">${esc(c.title || "untitled")}</span>
+      <span class="bar"><i style="width:${pct}%"></i></span>
+      <span class="sim">${c.similarity.toFixed(3)}</span></div>
+    <div class="src-text" dir="auto">${esc(c.text)}</div></div>`;
+}
+function wireCitations(scope, prefix) {
+  scope.querySelectorAll(".cite").forEach(a => a.onclick = e => {
+    e.preventDefault();
+    const t = document.getElementById(prefix + "-" + a.dataset.n);
+    if (t) { t.scrollIntoView({ behavior: "smooth", block: "center" });
+      t.classList.remove("flash"); void t.offsetWidth; t.classList.add("flash"); }
+  });
+}
+function renderAnswer(box, j, prefix) {
+  box.innerHTML = `<div class="card"><div class="answer" dir="auto">${linkCitations(j.answer)}</div>
+    <div class="meta">${j.model ? `<span>model: <b>${esc(j.model)}</b></span>` : ""}
+      ${j.latency_ms != null ? `<span>llm: ${(j.latency_ms/1000).toFixed(1)}s</span>` : ""}</div></div>
+    ${(j.contexts||[]).length ? `<h2 class="sec">Retrieved excerpts (${j.contexts.length})</h2>` +
+      j.contexts.map(c => sourceCard(c, prefix)).join("") : ""}`;
+  wireCitations(box, prefix);
+}
+
+/* ASSISTANT */
+function renderDraft(box, j) {
+  const d = j.draft || {};
+  const parties = (d.parties||[]).map(p => `<tr><td dir="auto">${esc(p.name)}</td><td class="note">${esc(p.role)}</td></tr>`).join("");
+  const reps = (d.representation||[]).map(r => `<tr><td dir="auto">${esc(r.lawyer)}</td><td dir="auto">${esc(r.client)}</td></tr>`).join("");
+  const events = (d.events||[]).map(e => `<tr><td class="note">${esc(e.date)}</td><td dir="auto">${esc(e.description)}</td></tr>`).join("");
+  const ent = d.entities || {};
+  const tags = (d.tags||[]).map(t => `<span class="pill">${esc(t)}</span>`).join(" ");
+  box.innerHTML = `<div class="card pad draft">
+    <div class="row" style="margin:0 0 6px"><span class="pill">پیش‌نویس آرشیو — تأیید کنید</span></div>
+    <label>Title</label><input type="text" id="dfTitle" dir="auto" value="${esc(d.title||"")}" />
+    <label>Summary</label><textarea id="dfSummary" dir="auto">${esc(d.summary||"")}</textarea>
+    <label>Parties</label>${parties ? `<table><tbody>${parties}</tbody></table>` : '<span class="note">—</span>'}
+    <label>Representation (lawyer → client)</label>${reps ? `<table><tbody>${reps}</tbody></table>` : '<span class="note">—</span>'}
+    <label>Events</label>${events ? `<table><tbody>${events}</tbody></table>` : '<span class="note">—</span>'}
+    <label>Entities</label><div class="kv">
+      <b>case</b><span dir="auto">${esc(ent.case_number||"—")}</span>
+      <b>court</b><span dir="auto">${esc(ent.court||"—")}</span>
+      <b>topic</b><span dir="auto">${esc(ent.topic||"—")}</span>
+      <b>people</b><span dir="auto">${esc((ent.people||[]).join("، ")||"—")}</span>
+      <b>orgs</b><span dir="auto">${esc((ent.orgs||[]).join("، ")||"—")}</span></div>
+    <label>Tags</label><div class="taglist">${tags||'<span class="note">—</span>'}</div>
+    <label>Source id</label><input type="text" id="dfSource" placeholder="unique key, e.g. jalase-1402-09-15" />
+    <div class="row"><button class="go" id="dfCommit">تأیید و ذخیره</button>
+      <button class="ghost" id="dfDiscard">انصراف</button></div>
+    <div id="dfStatus"></div>
+  </div>
+  ${(j.related||[]).length ? `<h2 class="sec">مرتبط در آرشیو</h2>` +
+    j.related.map(r => `<div class="card src"><div class="src-head">
+      <span class="src-title" dir="auto">${esc(r.title)}</span>
+      <span class="sim">${r.similarity.toFixed(3)}</span></div></div>`).join("") : ""}`;
+
+  $("#dfDiscard").onclick = () => { box.innerHTML = ""; };
+  $("#dfCommit").onclick = async () => {
+    const source = $("#dfSource").value.trim();
+    if (!source) { $("#dfStatus").innerHTML = `<p class="err">Source id لازم است.</p>`; return; }
+    const draft = { ...d, title: $("#dfTitle").value, summary: $("#dfSummary").value };
+    $("#dfCommit").disabled = true; $("#dfCommit").innerHTML = '<span class="spin"></span>';
+    try {
+      const res = await api("/assistant/commit", { method: "POST", body: { draft, raw_text: j.raw_text, source } });
+      $("#dfStatus").innerHTML = `<p class="note">ذخیره شد ✓ (${res.related_ids.length} مورد مرتبط پیوند خورد)</p>`;
+      $("#dfCommit").textContent = "ذخیره شد";
+      refreshHealth();
+    } catch (e) {
+      $("#dfStatus").innerHTML = `<p class="err">${esc(e.message)}</p>`;
+      $("#dfCommit").disabled = false; $("#dfCommit").textContent = "تأیید و ذخیره";
+    }
+  };
+}
+function renderAnalytics(box, j) {
+  const s = j.stats || {};
+  const mini = (title, rows) => rows && rows.length
+    ? `<div><h2 class="sec">${title}</h2><table><tbody>${rows.map(r =>
+        `<tr><td dir="auto">${esc(r.name)}</td><td class="num">${r.count}</td></tr>`).join("")}</tbody></table></div>` : "";
+  box.innerHTML = `
+    ${j.summary ? `<div class="card answer" dir="auto">${esc(j.summary)}</div>` : ""}
+    <div class="kv" style="margin-top:14px">
+      <b>documents</b><span>${s.documents}</span>
+      <b>chunks</b><span>${s.chunks}</span>
+      <b>structured entries</b><span>${s.entries}</span></div>
+    ${mini("وکلا", s.lawyers)}${mini("موضوعات", s.topics)}
+    ${mini("اشخاص", s.people)}${mini("سازمان‌ها", s.orgs)}`;
+}
+let aMode = "";
+document.querySelectorAll("#aModes button").forEach(b => b.onclick = () => {
+  aMode = b.dataset.m;
+  document.querySelectorAll("#aModes button").forEach(x => x.classList.toggle("on", x === b));
+});
+async function assistant() {
+  const text = $("#a").value.trim(); if (!text) return;
+  const btn = $("#aGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  const box = $("#aResult");
+  box.innerHTML = `<p class="note">در حال پردازش… ${aMode ? "" : "تشخیص نیت، سپس "}اجرا (۱۰ تا ۴۰ ثانیه).</p>`;
+  try {
+    const j = await api("/assistant", { method: "POST", body: withModel({ text, intent: aMode || null }) });
+    if (j.intent === "query") renderAnswer(box, j, "a-src");
+    else if (j.intent === "archive") renderDraft(box, j);
+    else renderAnalytics(box, j);
+    box.insertAdjacentHTML("afterbegin", `<div class="row" style="margin:0 0 12px"><span class="pill">intent: ${esc(j.intent)}</span></div>`);
+  } catch (e) {
+    box.innerHTML = `<p class="err">${esc(e.message)}</p>`;
+  } finally { btn.disabled = false; btn.textContent = "ارسال"; }
+}
+
+/* ASK */
+async function ask() {
+  const q = $("#q").value.trim(); if (!q) return;
+  const btn = $("#askGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  const out = $("#askResult"); out.innerHTML = `<p class="note">Retrieving and generating…</p>`;
+  try {
+    const j = await api("/ask", { method: "POST", body: withModel({ question: q, top_k: +$("#askK").value }) });
+    renderAnswer(out, j, "ask-src");
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; btn.textContent = "Ask"; }
+}
+
+/* SEARCH */
+async function search() {
+  const q = $("#s").value.trim(); if (!q) return;
+  const btn = $("#searchGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  const out = $("#searchResult"); out.innerHTML = "";
+  try {
+    const j = await api("/search", { method: "POST", body: { query: q, top_k: +$("#searchK").value } });
+    out.innerHTML = j.hits.length
+      ? `<h2 class="sec">${j.hits.length} hits</h2>` + j.hits.map(c => sourceCard(c, "s-src")).join("")
+      : `<p class="note">No results.</p>`;
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; btn.textContent = "Search"; }
+}
+
+/* EVAL */
+async function runEval() {
+  const btn = $("#evalGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> در حال اجرا';
+  const out = $("#evalResult");
+  const withAns = $("#evalAnswers").checked;
+  out.innerHTML = `<p class="note">${withAns ? "با پاسخ مدل — چند دقیقه طول می‌کشد…" : "بازیابی…"}</p>`;
+  try {
+    const j = await api("/eval", { method: "POST", body: withModel({
+      top_k: +$("#evalK").value, with_answers: withAns }) });
+    const m = j.metrics;
+    const scorecard = Object.entries(m).map(([k, v]) =>
+      `<span class="pill" style="font-size:13px">${k} ${v}</span>`).join(" ");
+    const rows = j.cases.map(c => `<tr>
+      <td>${c.rank ? "@" + c.rank : '<span style="color:var(--bad)">MISS</span>'}</td>
+      <td dir="rtl">${esc(c.q)}${c.coverage != null ? ` <span class="note">cov ${Math.round(c.coverage*100)}%</span>` : ""}
+        ${c.answer ? `<div class="note" dir="auto" style="margin-top:4px">↳ ${esc(c.answer.slice(0,220))}</div>` : ""}</td>
+    </tr>`).join("");
+    out.innerHTML = `<div style="margin:14px 0">${scorecard}</div>
+      <p class="note">embed: ${esc(j.embedding_model)}${j.llm_model ? " · llm: " + esc(j.llm_model) : ""} · ${j.n} queries</p>
+      <table><thead><tr><th>rank</th><th>query</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; btn.textContent = "اجرای ارزیابی"; }
+}
+
+/* BENCH */
+const benchSel = new Set();
+function buildBenchModels() {
+  const box = $("#benchModels");
+  if (!box) return;
+  if (!MODELS.length) { box.innerHTML = `<span class="note">No models reported.</span>`; return; }
+  // default selection: current model + first available cloud model
+  if (!benchSel.size) {
+    if (MODEL_CURRENT) benchSel.add(MODEL_CURRENT);
+    const cloud = MODELS.find(m => m.provider !== "local" && m.available && m.id !== MODEL_CURRENT);
+    if (cloud) benchSel.add(cloud.id);
+  }
+  box.innerHTML = MODELS.map(m =>
+    `<button class="chip${benchSel.has(m.id) ? " on" : ""}" data-id="${esc(m.id)}"${m.available ? "" : " disabled"}>${esc(m.label)}</button>`).join("");
+  box.querySelectorAll(".chip").forEach(b => b.onclick = () => {
+    const id = b.dataset.id;
+    benchSel.has(id) ? benchSel.delete(id) : benchSel.add(id);
+    b.classList.toggle("on");
+  });
+}
+async function runBench() {
+  const ids = [...benchSel];
+  const questions = $("#benchQ").value.split("\n").map(s => s.trim()).filter(Boolean);
+  const out = $("#benchResult");
+  if (!ids.length || !questions.length) {
+    out.innerHTML = `<p class="err">Pick at least one model and enter at least one question.</p>`; return;
+  }
+  const btn = $("#benchGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> در حال اجرا';
+  out.innerHTML = `<p class="note">Running ${questions.length} × ${ids.length} generations — cloud models answer in parallel per question…</p>`;
+  try {
+    const j = await api("/bench", { method: "POST", body: { questions, model_ids: ids, top_k: +$("#benchK").value } });
+    const summary = `<div class="chips" style="margin:16px 0">` + j.summary.map(s =>
+      `<span class="pill" style="font-size:13px">${esc(modelLabel(s.model_id))} · ${
+        s.avg_latency_ms != null ? (s.avg_latency_ms/1000).toFixed(1) + "s avg" : "—"}${
+        s.avg_output_tokens != null ? " · ~" + s.avg_output_tokens + " tok" : ""}${
+        s.errors ? " · " + s.errors + " err" : ""}</span>`).join(" ") + `</div>`;
+    const blocks = j.rows.map((r, ri) => `
+      <div class="card pad" style="margin-bottom:14px">
+        <div dir="rtl" style="font-weight:600;margin-bottom:6px">${esc(r.question)}</div>
+        <div class="note" style="margin-bottom:4px">retrieved: ${r.contexts.map(c => esc(c.source)).join("، ")}</div>
+        ${r.cells.map(c => `
+          <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:10px">
+            <div class="src-head" style="margin-bottom:4px">
+              <span class="pill">${esc(modelLabel(c.model_id))}</span>
+              ${c.latency_ms != null ? `<span class="sim">${(c.latency_ms/1000).toFixed(1)}s</span>` : ""}
+              ${c.output_tokens != null ? `<span class="sim">${c.input_tokens != null ? c.input_tokens + "→" : ""}${c.output_tokens} tok</span>` : ""}
+            </div>
+            ${c.error
+              ? `<p class="err">${esc(c.error)}</p>`
+              : `<div class="answer" dir="auto" style="padding:6px 0">${linkCitations(c.answer)}</div>`}
+          </div>`).join("")}
+      </div>`).join("");
+    out.innerHTML = summary + blocks;
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; btn.textContent = "Run benchmark"; }
+}
+
+/* LIBRARY */
+async function loadLibrary() {
+  loadStats(); loadEntries();
+  const box = $("#libList"); box.innerHTML = `<span class="note">loading…</span>`;
+  try {
+    const docs = await api("/documents");
+    box.innerHTML = docs.length ? `<table><thead><tr><th>Title</th><th>Source</th><th class="num">Chunks</th><th></th></tr></thead>
+      <tbody>${docs.map(d => `<tr><td dir="auto">${esc(d.title||"—")}</td><td class="note">${esc(d.source)}</td>
+        <td class="num">${d.chunks}</td><td><button class="del" data-id="${d.id}">delete</button></td></tr>`).join("")}</tbody></table>`
+      : `<span class="note">Nothing indexed.</span>`;
+    box.querySelectorAll(".del").forEach(b => b.onclick = async () => {
+      if (!confirm("Delete this document?")) return;
+      try { await api("/documents/" + b.dataset.id, { method: "DELETE" }); loadLibrary(); refreshHealth(); }
+      catch (e) { alert(e.message); }
+    });
+  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function loadStats() {
+  const box = $("#statsBox");
+  try {
+    const s = await api("/stats");
+    const mini = (t, rows) => rows && rows.length ? `<h2 class="sec" style="margin:14px 0 8px">${t}</h2>
+      <table><tbody>${rows.slice(0,8).map(r => `<tr><td dir="auto">${esc(r.name)}</td><td class="num">${r.count}</td></tr>`).join("")}</tbody></table>` : "";
+    box.innerHTML = `<div class="kv"><b>documents</b><span>${s.documents}</span>
+      <b>chunks</b><span>${s.chunks}</span><b>structured entries</b><span>${s.entries}</span></div>
+      ${mini("وکلا", s.lawyers)}${mini("موضوعات", s.topics)}`;
+  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function loadEntries() {
+  const box = $("#entriesBox");
+  try {
+    const es = await api("/entries");
+    if (!es.length) { box.innerHTML = `<span class="note">هنوز موردی استخراج نشده. <code>python -m scripts.extract</code></span>`; return; }
+    box.innerHTML = es.map(e => {
+      const reps = (e.representation||[]).map(r => `${esc(r.lawyer)} → ${esc(r.client)}`).join("<br>");
+      return `<details class="card" style="margin-bottom:8px"><summary style="padding:12px;cursor:pointer" dir="auto">
+        <b>${esc(e.title||"—")}</b> <span class="note">${esc(e.entities?.topic||"")}</span></summary>
+        <div class="pad" style="border-top:1px solid var(--border)">
+          <div class="kv"><b>خلاصه</b><span dir="auto">${esc(e.summary||"—")}</span>
+            <b>وکالت</b><span dir="auto">${reps||"—"}</span>
+            <b>پرونده</b><span dir="auto">${esc(e.entities?.case_number||"—")}</span>
+            <b>دادگاه</b><span dir="auto">${esc(e.entities?.court||"—")}</span>
+            <b>مرتبط</b><span>${(e.related_ids||[]).length}</span></div>
+          <div class="row"><button class="del" data-id="${e.id}">delete</button></div>
+        </div></details>`;
+    }).join("");
+    box.querySelectorAll(".del").forEach(b => b.onclick = async () => {
+      try { await api("/entries/" + b.dataset.id, { method: "DELETE" }); loadEntries(); loadStats(); }
+      catch (e) { alert(e.message); }
+    });
+  } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+}
+async function ingest() {
+  const text = $("#docText").value.trim(), source = $("#docSource").value.trim();
+  const out = $("#ingestResult");
+  if (!text || !source) { out.innerHTML = `<p class="err">Source id and text required.</p>`; return; }
+  const btn = $("#ingestGo"); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  try {
+    const j = await api("/ingest", { method: "POST", body: {
+      documents: [{ text, source, title: $("#docTitle").value.trim() || null }], replace: $("#ingestReplace").checked }});
+    const r = j.results[0];
+    out.innerHTML = `<p class="note">${esc(r.status)} — ${r.chunks} chunks. Index: ${j.indexed_chunks}.</p>`;
+    if (r.status !== "skipped") $("#docText").value = $("#docSource").value = $("#docTitle").value = "";
+    loadLibrary(); refreshHealth();
+  } catch (e) { out.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  finally { btn.disabled = false; btn.textContent = "Ingest"; }
+}
+
+/* settings */
+function openSettings(message) {
+  $("#cfgUrl").value = localStorage.getItem("rag.url") || location.origin;
+  $("#cfgToken").value = cfg.token;
+  $("#cfgStatus").innerHTML = message ? `<span class="err">${esc(message)}</span>` : "";
+  $("#modalBg").classList.add("on");
+}
+$("#settingsBtn").onclick = () => openSettings();
+$("#cfgCancel").onclick = () => $("#modalBg").classList.remove("on");
+$("#cfgSave").onclick = async () => {
+  cfg.set($("#cfgUrl").value.trim() || location.origin, $("#cfgToken").value.trim());
+  $("#cfgStatus").textContent = "testing…";
+  try { await refreshHealth(); $("#cfgStatus").textContent = "connected ✓";
+    setTimeout(() => $("#modalBg").classList.remove("on"), 500); }
+  catch (e) { $("#cfgStatus").innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+};
+
+/* wire */
+$("#aSamples").innerHTML = "";
+A_SAMPLES.forEach(s => { const b = document.createElement("button"); b.className = "chip";
+  b.textContent = s.length > 60 ? s.slice(0, 60) + "…" : s;
+  b.onclick = () => { $("#a").value = s; $("#a").focus(); }; $("#aSamples").appendChild(b); });
+$("#aGo").onclick = assistant;
+$("#a").addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") assistant(); });
+$("#askGo").onclick = ask;
+$("#q").addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") ask(); });
+$("#searchGo").onclick = search;
+$("#s").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+$("#ingestGo").onclick = ingest;
+$("#evalGo").onclick = runEval;
+$("#benchGo").onclick = runBench;
+$("#benchQ").value = A_SAMPLES.filter(s => s.length < 70).join("\n") || A_SAMPLES[0];
+refreshHealth().then(loadModels).catch(() => {});
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+Anderson v. Liberty Lobby, Inc., 477 U.S. 242 (1986)
+United States Supreme Court
+Topic: Summary judgment — the "genuine issue of material fact" standard
+
+Excerpt:
+
+The Court clarified what a "genuine" issue of "material" fact means for
+purposes of Rule 56. A fact is "material" if it might affect the outcome
+of the suit under the governing substantive law; factual disputes that are
+irrelevant or unnecessary will not defeat summary judgment.
+
+An issue is "genuine" if the evidence is such that a reasonable jury could
+return a verdict for the nonmoving party. If the evidence is merely
+colorable, or is not significantly probative, summary judgment may be
+granted.
+
+Critically, the judge must view the evidence through the prism of the
+substantive evidentiary burden that would apply at trial. In a case
+requiring proof by clear and convincing evidence, the court on summary
+judgment must ask whether a reasonable factfinder could find that the
+plaintiff had shown the claim by clear and convincing evidence. The
+inquiry is whether the evidence presents a sufficient disagreement to
+require submission to a jury or whether it is so one-sided that one party
+must prevail as a matter of law. The court does not weigh the evidence or
+make credibility determinations; those are jury functions.

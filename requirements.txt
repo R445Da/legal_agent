@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+pydantic
+sqlalchemy[asyncio]
+asyncpg
+pgvector
+python-dotenv
+httpx
+anthropic
+openai
+
+# Zero-setup local infra for the prototype:
+pgserver       # bundled PostgreSQL + pgvector, runs as the current user (needs Python <= 3.12)
+fastembed      # local ONNX embeddings, no torch, offline after first download

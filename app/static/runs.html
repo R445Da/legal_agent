@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>کارگاه ساخت — خط لولهٔ مدخل</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#142236; --ink-soft:#44506B;
+  --paper:#F3F0E7; --surface:#FFFFFF; --line:#E1DAC7;
+  --stamp-red:#7C2D2D; --stamp-red-soft:#F2E1DC;
+  --teal:#0F4C3A; --teal-soft:#DCEAE1;
+  --amber:#9C7209; --amber-soft:#F2E6C9;
+  --gray:#6E6858; --gray-soft:#EAE5D8;
+  --radius:12px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{font-family:'Vazirmatn',system-ui,sans-serif;background:var(--paper);color:var(--ink);font-size:14px;line-height:1.7;}
+.mono{font-family:'IBM Plex Mono','Vazirmatn',monospace;}
+a{color:var(--teal);}
+.wrap{max-width:900px;margin:0 auto;padding:26px 22px 80px;}
+h1{font-size:19px;font-weight:800;margin:0 0 2px;}
+.sub{color:var(--gray);font-size:12.5px;margin-bottom:20px;}
+button{font-family:inherit;cursor:pointer;}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:7px 13px;border-radius:8px;font-size:12.5px;font-weight:600;}
+.btn:hover{border-color:var(--teal);color:var(--teal);}
+
+.tokline{display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap;}
+.tokline input{border:1px solid var(--line);border-radius:8px;padding:7px 11px;font-family:inherit;font-size:12.5px;min-width:280px;background:var(--surface);color:var(--ink);}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:16px;box-shadow:0 1px 0 var(--line),0 8px 22px -14px rgba(20,34,54,.22);}
+.panel-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.panel-head h3{margin:0;font-size:13.5px;font-weight:700;}
+.panel-body{padding:12px 16px;}
+
+.run-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 4px;border-bottom:1px solid #EEF0EA;cursor:pointer;}
+.run-row:last-child{border-bottom:none;}
+.run-row:hover{background:var(--paper);}
+.run-row .t{font-weight:600;font-size:12.8px;}
+.run-row .d{color:var(--gray);font-size:11px;margin-top:2px;}
+
+.stamp{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:10.8px;font-weight:700;border:1.5px dashed currentColor;white-space:nowrap;}
+.stamp .dotc{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.stamp.running{color:var(--amber);background:var(--amber-soft);}
+.stamp.awaiting_input{color:var(--amber);background:var(--amber-soft);}
+.stamp.committed{color:var(--teal);background:var(--teal-soft);}
+.stamp.failed{color:var(--stamp-red);background:var(--stamp-red-soft);}
+.stamp.abandoned{color:var(--gray);background:var(--gray-soft);}
+
+/* stepper — ported from the ingest-pipeline modal of app.html */
+.pipe-step{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid #EEF0EA;}
+.pipe-step:last-child{border-bottom:none;}
+.pipe-icon{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11.5px;flex:none;color:var(--gray);font-family:'IBM Plex Mono';}
+.pipe-step.running .pipe-icon,.pipe-step.awaiting_input .pipe-icon{border-color:var(--amber);color:var(--amber);}
+.pipe-step.done .pipe-icon{background:var(--teal);color:#fff;border-color:var(--teal);}
+.pipe-step.failed .pipe-icon{background:var(--stamp-red);color:#fff;border-color:var(--stamp-red);}
+.pipe-step.pending{opacity:.5;}
+.pipe-main{flex:1;min-width:0;}
+.pipe-label{font-size:13px;font-weight:600;}
+.pipe-detail{font-size:11.6px;color:var(--ink-soft);margin-top:2px;}
+.pipe-detail.err{color:var(--stamp-red);}
+.pipe-ms{font-family:'IBM Plex Mono';font-size:10.5px;color:var(--gray);}
+.pipe-payload{margin-top:8px;}
+.pipe-payload summary{font-size:11.3px;color:var(--gray);cursor:pointer;}
+pre{background:#132029;color:#D9E4DC;border-radius:8px;padding:12px 14px;font-family:'IBM Plex Mono';font-size:11px;line-height:1.75;direction:ltr;text-align:left;overflow-x:auto;white-space:pre-wrap;word-break:break-word;margin:8px 0 0;}
+
+.rawbox{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:10px 13px;font-size:12px;white-space:pre-wrap;max-height:220px;overflow:auto;}
+.toollog{margin-top:6px;}
+.toollog .call{font-family:'IBM Plex Mono';font-size:11px;color:var(--ink-soft);padding:3px 0;border-bottom:1px dashed var(--line);}
+.muted{color:var(--gray);font-size:12px;padding:14px 4px;}
+.err-banner{background:var(--stamp-red-soft);color:#5a1f1f;border:1px dashed var(--stamp-red);border-radius:8px;padding:10px 13px;font-size:12.5px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>کارگاه ساخت</h1>
+  <div class="sub">خط لولهٔ ساخت مدخل — نمای فقط‌خواندنی. اجراها از برنامهٔ اصلی آغاز و پیش می‌روند.</div>
+
+  <div class="tokline" id="tokline" style="display:none">
+    <span>توکن دسترسی:</span>
+    <input id="tok" type="password" placeholder="API_TOKEN">
+    <button class="btn" onclick="saveTok()">ذخیره</button>
+  </div>
+
+  <div id="banner"></div>
+  <div id="view"></div>
+</div>
+
+<script>
+const qs = new URLSearchParams(location.search);
+let TOKEN = qs.get("token") || localStorage.getItem("runs_token") || "";
+if (qs.get("token")) { try { localStorage.setItem("runs_token", TOKEN); } catch(e){} }
+
+const routeId = () => {
+  const m = location.pathname.match(/\/runs\/view\/([0-9a-f-]+)/i);
+  return m ? m[1] : null;
+};
+function saveTok(){
+  TOKEN = document.getElementById("tok").value.trim();
+  try { localStorage.setItem("runs_token", TOKEN); } catch(e){}
+  location.reload();
+}
+function withTok(url){ return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN); }
+async function api(path){
+  const r = await fetch(withTok(path), {headers:{"Accept":"application/json"}});
+  if (r.status === 401){ document.getElementById("tokline").style.display="flex";
+    throw new Error("۴۰۱ — توکن نامعتبر"); }
+  if (!r.ok) throw new Error(r.status + " — " + path);
+  return r.json();
+}
+const esc = s => String(s==null?"":s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const banner = msg => { document.getElementById("banner").innerHTML =
+  msg ? `<div class="err-banner">${esc(msg)}</div>` : ""; };
+
+const STEP_FA = {classify:"تشخیص نوع", extract:"استخراج ساختاریافته", timeline:"خط زمان",
+  similar:"پرونده‌های مشابه", labels:"برچسب‌ها", commit:"ثبت در آرشیو"};
+const STATUS_FA = {running:"در حال اجرا", awaiting_input:"در انتظار تأیید شما", committed:"ثبت شد",
+  failed:"ناموفق", abandoned:"رها شده", pending:"در صف"};
+const fmtTime = s => { try { return new Date(s).toLocaleString("fa-IR"); } catch(e){ return s||""; } };
+
+async function renderList(){
+  const {runs} = await api("/runs");
+  if (!runs.length){ document.getElementById("view").innerHTML =
+    `<div class="panel"><div class="panel-body muted">هنوز اجرایی ثبت نشده است. از بخش «۰۱ دستیار پرونده» یک متن را برای ثبت وارد کنید.</div></div>`;
+    return; }
+  const rows = runs.map(r => `
+    <div class="run-row" onclick="location.href='/runs/view/${r.id}'">
+      <div>
+        <div class="t">${esc(r.source || r.id)}</div>
+        <div class="d">${esc(r.kind)} · ${r.step_count} گام · ${fmtTime(r.created_at)}${r.entry_id ? " · مدخل ثبت‌شده" : ""}</div>
+      </div>
+      <span class="stamp ${r.status}"><span class="dotc"></span>${STATUS_FA[r.status]||r.status}</span>
+    </div>`).join("");
+  document.getElementById("view").innerHTML =
+    `<div class="panel"><div class="panel-head"><h3>اجراها</h3><span class="mono" style="font-size:11px;color:var(--gray)">${runs.length}</span></div>
+     <div class="panel-body">${rows}</div></div>`;
+}
+
+function payloadHTML(step){
+  const p = step.payload || {};
+  if (step.step_id === "similar"){
+    const items = (p.items||[]).map(s => `<div class="call">${esc(s.title)} — ${esc(s.outcome||s.why||"")}</div>`).join("");
+    const tl = (p.tool_log||[]).map(t => `<div class="call">${esc(t.summary)}</div>`).join("");
+    return `<div class="toollog">${items || '<span class="muted">موردی نیست</span>'}</div>` +
+           (tl ? `<div class="toollog" style="margin-top:8px"><b style="font-size:11px">فراخوانی ابزار مدل</b>${tl}</div>` : "");
+  }
+  if (step.step_id === "timeline"){
+    return `<div class="toollog">${(p.rows||[]).map(r =>
+      `<div class="call">${esc(r.date||"—")} · ${esc(r.title||"")}</div>`).join("") || '<span class="muted">—</span>'}</div>`;
+  }
+  if (step.step_id === "labels"){
+    return `<div class="toollog">${(p.labels||[]).map(l => `<span class="stamp committed" style="margin:3px 4px 0 0">${esc(l)}</span>`).join("") || "—"}</div>`;
+  }
+  return `<pre>${esc(JSON.stringify(p, null, 2))}</pre>`;
+}
+
+function iconFor(st){
+  if (st.status === "done") return "✓";
+  if (st.status === "failed") return "✕";
+  if (st.status === "running") return "…";
+  if (st.status === "awaiting_input") return "⏳";
+  return st.seq;
+}
+
+function renderDetail(view){
+  const stepIds = ["classify","extract","timeline","similar","labels","commit"];
+  const bySeq = {}; (view.steps||[]).forEach(s => bySeq[s.step_id] = s);
+  const steps = stepIds.map((sid, i) => bySeq[sid] || {seq:i+1, step_id:sid, status:"pending"});
+
+  const rows = steps.map(st => `
+    <div class="pipe-step ${st.status}">
+      <div class="pipe-icon">${iconFor(st)}</div>
+      <div class="pipe-main">
+        <div class="pipe-label">${st.seq}. ${STEP_FA[st.step_id]||st.step_id}
+          <span class="pipe-ms">${st.ms!=null ? " · "+st.ms+" میلی‌ثانیه" : ""}</span></div>
+        ${st.detail ? `<div class="pipe-detail">${esc(st.detail)}</div>` : ""}
+        ${st.error ? `<div class="pipe-detail err">${esc(st.error)}</div>` : ""}
+        ${st.payload && Object.keys(st.payload).length
+          ? `<details class="pipe-payload"><summary>دادهٔ این گام</summary>${payloadHTML(st)}</details>` : ""}
+      </div>
+    </div>`).join("");
+
+  document.getElementById("view").innerHTML = `
+    <div style="margin-bottom:14px"><a href="/runs/view">→ همهٔ اجراها</a></div>
+    <div class="panel">
+      <div class="panel-head">
+        <h3>${esc(view.source || view.id)}</h3>
+        <span class="stamp ${view.status}"><span class="dotc"></span>${STATUS_FA[view.status]||view.status}</span>
+      </div>
+      <div class="panel-body">
+        <details><summary style="font-size:11.5px;color:var(--gray);cursor:pointer">متن ورودی</summary>
+          <div class="rawbox" style="margin-top:8px">${esc(view.raw_text||"")}</div></details>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>گام‌ها</h3>
+        ${view.entry_id ? `<span class="mono" style="font-size:10.5px;color:var(--gray)">مدخل ${esc(view.entry_id)}</span>` : ""}</div>
+      <div class="panel-body">${rows}</div>
+    </div>`;
+}
+
+async function runDetail(id){
+  try { renderDetail(await api("/runs/" + id)); }
+  catch(e){ banner(e.message); return; }
+  // live updates
+  try {
+    const es = new EventSource(withTok("/runs/" + id + "/events"));
+    es.onmessage = ev => { try { renderDetail(JSON.parse(ev.data)); } catch(e){} };
+    es.addEventListener("gone", () => es.close());
+    es.onerror = () => es.close();
+  } catch(e){}
+}
+
+(async function(){
+  if (!TOKEN) document.getElementById("tokline").style.display = "flex";
+  try {
+    const id = routeId();
+    if (id) await runDetail(id); else await renderList();
+  } catch(e){ banner(e.message); }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# Keep the build context small. Everything the image needs is app/, scripts/,
+# and docker/ (which carries its own requirements.txt and seed.dump).
+
+.venv/
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Raw embedded-DB directory — the image seeds from docker/seed.dump instead.
+.pgdata/
+
+# Source corpus (~0.5 GB) — only needed to re-ingest, not to run.
+data/
+
+# Local dev cruft
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.log
+.env
+.env.bak
+.env.docker
+.streamlit/secrets.toml
+docs/
+*.md
+
+# root-level scratch HTML prototypes (the real UI lives in app/static/)
+/legal-archive-prototype.html
+/legal-archive-unified*.html
+
+# but keep the docker docs
+!docker/README.md

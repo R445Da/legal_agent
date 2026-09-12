@@ -1,0 +1,26 @@
+# Image dependency set for the Streamlit workbench.
+#
+# Pins that must not drift — the baked seed database depends on them:
+#   fastembed==0.8.0  the seed's chunk vectors were produced with this version's
+#                     pooling for the MiniLM model; query-time embeddings must
+#                     match or retrieval quality collapses
+#
+streamlit
+fastapi
+uvicorn[standard]
+pydantic
+sqlalchemy[asyncio]
+asyncpg
+pgvector
+python-dotenv
+httpx
+anthropic
+openai
+faster-whisper           # local speech-to-text; the Groq Whisper path needs no model
+fastembed==0.8.0
+
+# pgserver is deliberately ABSENT: it has no linux-aarch64 wheel (so it cannot
+# build on Oracle's ARM instances) and its on-disk cluster does not survive an
+# ephemeral container anyway. Cloud deployments point DATABASE_URL at a managed
+# Postgres — Supabase, Neon, or Oracle's own — which is also what makes this
+# image identical on x86 and ARM.

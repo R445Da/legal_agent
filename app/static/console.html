@@ -1,0 +1,1374 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>دستیار پرونده — آرشیو و هوش مصنوعی حقوقی</title>
+<meta name="description" content="نسخه نمایشی رابط کاربری پلتفرم هوش مصنوعی مدیریت پرونده و آرشیو حقوقی">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23142236'/%3E%3Cg stroke='%23C6A44E' stroke-width='4' fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='50' y1='24' x2='50' y2='72'/%3E%3Cline x1='30' y1='32' x2='70' y2='32'/%3E%3Cline x1='30' y1='32' x2='20' y2='50'/%3E%3Cline x1='30' y1='32' x2='40' y2='50'/%3E%3Cpath d='M18 50a12 7 0 0 0 24 0'/%3E%3Cline x1='70' y1='32' x2='60' y2='50'/%3E%3Cline x1='70' y1='32' x2='80' y2='50'/%3E%3Cpath d='M58 50a12 7 0 0 0 24 0'/%3E%3Cline x1='38' y1='76' x2='62' y2='76'/%3E%3Ccircle cx='50' cy='24' r='4' fill='%23C6A44E' stroke='none'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#142236; --ink-soft:#44506B;
+  --paper:#F3F0E7; --surface:#FFFFFF;
+  --line:#E1DAC7;
+  --stamp-red:#7C2D2D; --stamp-red-soft:#F2E1DC;
+  --teal:#0F4C3A; --teal-soft:#DCEAE1;
+  --amber:#9C7209; --amber-soft:#F2E6C9;
+  --gray:#6E6858; --gray-soft:#EAE5D8;
+  --gold:#A9812E; --gold-soft:#F2E9D3;
+  --radius:12px;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;height:100%;}
+body{font-family:'Vazirmatn',sans-serif;background:var(--paper);color:var(--ink);font-size:14.3px;}
+.mono{font-family:'IBM Plex Mono','Vazirmatn',monospace;}
+button{font-family:inherit;cursor:pointer;}
+ul{margin:0;}
+
+/* ---------- shell ---------- */
+.shell{display:flex;height:100vh;overflow:hidden;}
+.sidebar{width:238px;flex:none;background:var(--ink);color:#EDEFEA;display:flex;flex-direction:column;transition:width .2s;}
+.sidebar.collapsed{width:0;overflow:hidden;}
+.brand{padding:20px 18px 14px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px;}
+.brand-mark{width:36px;height:36px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden;box-shadow:0 0 0 1px rgba(169,129,46,.35);}
+.brand-title{font-weight:800;font-size:14.8px;}
+.brand-sub{font-size:10.5px;color:#94A69A;font-family:'IBM Plex Mono';letter-spacing:.5px;}
+.nav{padding:12px 10px;flex:1;overflow-y:auto;}
+.nav-label{font-size:10.3px;color:#7C8B80;letter-spacing:.5px;padding:12px 12px 6px;font-family:'IBM Plex Mono';}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 12px;margin-bottom:3px;border-radius:8px;color:#C9D0C5;font-size:13.3px;font-weight:500;border-inline-start:3px solid transparent;}
+.nav-item .n{font-family:'IBM Plex Mono';font-size:10.5px;color:#7C8B80;width:16px;}
+.nav-item:hover{background:rgba(255,255,255,.05);color:#fff;cursor:pointer;}
+.nav-item.active{background:rgba(255,255,255,.08);color:#fff;border-inline-start-color:var(--amber);}
+.nav-item .badge{margin-inline-start:auto;background:var(--stamp-red);color:#fff;font-size:10px;font-family:'IBM Plex Mono';border-radius:10px;padding:1px 6px;}
+.sidebar-foot{padding:12px 18px;border-top:1px solid rgba(255,255,255,.08);font-size:11px;color:#8A9A8F;line-height:1.7;}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+/* the scroll fix: only the area under the fixed top bar scrolls, per page */
+.scroll-area{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;}
+.dotc{width:6px;height:6px;border-radius:50%;display:inline-block;flex:none;}
+
+/* ---------- classic top bar ---------- */
+.topbar{height:60px;flex:none;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;position:relative;z-index:6;}
+.tb-left{display:flex;align-items:center;gap:12px;}
+.icon-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;position:relative;background:#fff;}
+.icon-btn.on{background:var(--teal-soft);color:var(--teal);border-color:var(--teal);}
+.tb-title{font-weight:800;font-size:15px;}
+.tb-access{font-size:10.8px;color:var(--gray);}
+.tb-right{display:flex;align-items:center;gap:10px;}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:12.6px;}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--teal-soft);color:var(--teal);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;}
+.bell-panel{position:absolute;top:56px;left:22px;width:300px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px -8px rgba(28,43,57,.25);padding:10px;display:none;z-index:20;}
+.bell-panel.show{display:block;}
+.bell-panel h4{margin:4px 8px 8px;font-size:12.5px;}
+.bell-row{padding:8px;border-radius:8px;font-size:12px;}
+.bell-row:hover{background:var(--paper);}
+.bell-row .d{color:var(--gray);font-size:11px;margin-top:2px;}
+.bell-note{font-size:10.3px;color:var(--gray);padding:8px;border-top:1px dashed var(--line);margin-top:4px;}
+
+.view{padding:24px 28px 60px;max-width:1180px;margin:0 auto;width:100%;}
+.view-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px;}
+.view-title{font-size:19px;font-weight:800;}
+.view-sub{color:var(--gray);font-size:12.6px;margin-top:2px;}
+.btn{border:1px solid var(--ink);background:var(--ink);color:#fff;padding:9px 16px;border-radius:8px;font-size:12.6px;font-weight:600;}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--line);}
+.btn.teal{background:var(--teal);border-color:var(--teal);}
+.btn.sm{padding:6px 12px;font-size:11.8px;}
+
+/* ---------- shared: case id / stamps ---------- */
+.case-id{display:inline-flex;gap:5px;direction:ltr;unicode-bidi:isolate;}
+.case-id .grp{display:inline-flex;gap:2px;}
+.case-id .d{font-family:'IBM Plex Mono';font-weight:600;font-size:12px;width:16px;height:19px;display:flex;align-items:center;justify-content:center;border:1px solid var(--line);border-radius:2px;background:#fff;color:var(--ink-soft);}
+.case-id.lg .d{width:20px;height:24px;font-size:14px;}
+.stamp{display:inline-flex;align-items:center;gap:6px;padding:4px 11px 4px 9px;border-radius:20px;font-size:11.3px;font-weight:700;border:1.5px dashed currentColor;}
+.stamp .dotc{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.stamp.open{color:var(--teal);background:var(--teal-soft);}
+.stamp.closed-win{color:var(--teal);background:var(--teal-soft);}
+.stamp.closed-loss{color:var(--gray);background:var(--gray-soft);}
+.stamp.review{color:var(--amber);background:var(--amber-soft);}
+.stamp.urgent{color:var(--stamp-red);background:var(--stamp-red-soft);}
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:14px;background:var(--gray-soft);color:var(--ink-soft);font-size:11px;font-weight:600;margin-inline-end:6px;margin-bottom:6px;}
+
+/* ---------- ledger / panel / table (dashboard, lists) ---------- */
+.ledger-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+.ledger-card{background:var(--surface);border:1px solid var(--line);border-top:3px dashed var(--line);border-radius:var(--radius);padding:15px 17px;}
+.ledger-card .num{font-family:'IBM Plex Mono';font-size:25px;font-weight:600;line-height:1;}
+.ledger-card .lbl{color:var(--gray);font-size:12px;margin-top:8px;}
+.ledger-card.accent-red{border-top-color:var(--stamp-red);} .ledger-card.accent-red .num{color:var(--stamp-red);}
+.ledger-card.accent-teal{border-top-color:var(--teal);} .ledger-card.accent-teal .num{color:var(--teal);}
+.ledger-card.accent-amber{border-top-color:var(--amber);} .ledger-card.accent-amber .num{color:var(--amber);}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);margin-bottom:18px;}
+.panel-head{padding:14px 17px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;}
+.panel-head h3{margin:0;font-size:14px;font-weight:700;}
+.panel-body{padding:4px 17px 12px;}
+table{width:100%;border-collapse:collapse;}
+th{text-align:right;font-size:10.8px;color:var(--gray);font-weight:600;padding:9px 7px;border-bottom:1px solid var(--line);}
+td{padding:11px 7px;border-bottom:1px solid #EEF0EA;font-size:13px;vertical-align:middle;}
+tr.row-hover:hover{background:var(--paper);cursor:pointer;}
+.case-title-cell{font-weight:700;}
+.case-sub{color:var(--gray);font-size:11.5px;margin-top:2px;font-weight:400;}
+.list-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid #EEF0EA;gap:10px;}
+.list-row:last-child{border-bottom:none;}
+.disclaimer{background:var(--amber-soft);color:#7A5305;border:1px dashed var(--amber);border-radius:8px;padding:11px 14px;font-size:12px;margin-bottom:14px;}
+
+/* ---------- case detail ---------- */
+.case-cover{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px;}
+.case-cover-top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+.case-cover h2{margin:8px 0 6px;font-size:18.5px;font-weight:800;}
+.case-meta{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;color:var(--ink-soft);font-size:12.4px;}
+.case-meta b{color:var(--ink);font-weight:700;}
+.folder-tabs{display:flex;gap:2px;margin-top:14px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+.folder-tab{padding:9px 15px;font-size:12.6px;font-weight:600;color:var(--gray);border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;position:relative;top:1px;}
+.folder-tab.active{color:var(--ink);background:var(--surface);border-color:var(--line);border-bottom:1px solid var(--surface);}
+.tab-panel{background:var(--surface);border:1px solid var(--line);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:20px;margin-bottom:22px;}
+
+.tl-item{display:flex;gap:14px;position:relative;padding-bottom:20px;}
+.tl-item:last-child{padding-bottom:0;}
+.tl-item::before{content:"";position:absolute;top:22px;bottom:-4px;right:14.5px;width:1px;background:var(--line);}
+.tl-item:last-child::before{display:none;}
+.tl-dot{width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;border:2px solid var(--teal);color:var(--teal);background:var(--teal-soft);font-size:13px;z-index:1;}
+.tl-item.pending .tl-dot{border-color:var(--amber);color:var(--amber);background:var(--amber-soft);}
+.tl-date{font-family:'IBM Plex Mono';font-size:11.3px;color:var(--gray);margin-bottom:2px;}
+.tl-title{font-weight:700;font-size:13.3px;}
+.tl-desc{color:var(--ink-soft);font-size:12.3px;margin-top:2px;}
+.tl-src{color:var(--gray);font-size:10.8px;margin-top:5px;}
+
+.doc-row{display:flex;align-items:center;gap:13px;padding:12px 4px;border-bottom:1px solid #EEF0EA;}
+.doc-row:last-child{border-bottom:none;}
+.doc-icon{width:36px;height:36px;border-radius:6px;background:var(--paper);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:10px;font-weight:700;color:var(--ink-soft);flex:none;}
+.doc-name{font-weight:600;font-size:13.1px;}
+.doc-meta{color:var(--gray);font-size:11.3px;margin-top:2px;}
+.doc-right{margin-inline-start:auto;display:flex;align-items:center;gap:10px;}
+
+.fin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;}
+.fin-box{border:1px solid var(--line);border-radius:8px;padding:13px 15px;background:var(--paper);}
+.fin-box .lbl{color:var(--gray);font-size:11.5px;}
+.fin-box .val{font-family:'IBM Plex Mono';font-size:16.5px;font-weight:600;margin-top:6px;}
+
+.sim-row{padding:13px 4px;border-bottom:1px solid #EEF0EA;}
+.sim-row:last-child{border-bottom:none;}
+.sim-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;}
+.bar-track{height:6px;border-radius:4px;background:var(--gray-soft);overflow:hidden;}
+.bar-fill{height:100%;background:var(--teal);border-radius:4px;}
+.sim-pct{font-family:'IBM Plex Mono';font-weight:700;font-size:12.3px;}
+
+.action-row{display:flex;align-items:flex-start;gap:11px;padding:11px 4px;border-bottom:1px solid #EEF0EA;}
+.chk{width:18px;height:18px;border:1.5px solid var(--line);border-radius:5px;flex:none;margin-top:2px;}
+
+.json-box{background:#132029;color:#D9E4DC;border-radius:10px;padding:16px 18px;font-family:'IBM Plex Mono';font-size:11.8px;line-height:1.85;direction:ltr;text-align:left;overflow-x:auto;white-space:pre;}
+
+/* ---------- review queue ---------- */
+.review-card{background:var(--surface);border:1px solid var(--amber);border-radius:var(--radius);padding:18px 20px;margin-bottom:16px;}
+.alt-box{border:1px solid var(--line);border-radius:8px;padding:10px 13px;margin-top:8px;background:var(--paper);}
+.alt-box .src{color:var(--gray);font-size:11px;margin-top:3px;}
+
+/* ---------- taxonomy ---------- */
+.tax-branch{margin-bottom:14px;}
+.tax-root{font-weight:800;font-size:14.5px;margin-bottom:8px;display:flex;align-items:center;gap:8px;}
+.tax-cat{padding:8px 0 8px 14px;border-inline-start:2px solid var(--line);margin-inline-start:8px;}
+.tax-cat-title{font-weight:700;font-size:13px;margin-bottom:6px;color:var(--ink-soft);}
+.tax-leaf{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--line);border-radius:16px;font-size:12px;margin:0 4px 6px 0;background:#fff;}
+.tax-leaf:hover{border-color:var(--teal);color:var(--teal);cursor:pointer;}
+.tax-leaf .cnt{font-family:'IBM Plex Mono';color:var(--gray);font-size:10.5px;}
+.tax-candidate{border:1px dashed var(--amber);background:var(--amber-soft);color:#7A5305;border-radius:10px;padding:12px 15px;font-size:12px;margin-top:10px;}
+
+/* ---------- modal generic ---------- */
+.overlay{position:fixed;inset:0;background:rgba(28,43,57,.45);display:none;align-items:center;justify-content:center;z-index:50;}
+.overlay.show{display:flex;}
+.modal{background:#fff;border-radius:12px;width:560px;max-width:92vw;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;}
+.modal-head h3{margin:0;font-size:14.5px;font-weight:800;}
+.modal-close{color:var(--gray);font-size:20px;line-height:1;}
+.modal-body{padding:18px 20px 22px;}
+.form-row{margin-bottom:12px;}
+.form-row label{display:block;font-size:12px;color:var(--gray);margin-bottom:5px;}
+.form-row input, .form-row select, .form-row textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);}
+.form-row textarea{resize:vertical;min-height:60px;}
+.form-hint{font-size:10.8px;color:var(--gray);margin-top:4px;}
+
+.pipe-step{display:flex;align-items:center;gap:12px;padding:9px 0;opacity:.35;transition:opacity .3s;}
+.pipe-step.active{opacity:1;}
+.pipe-step.done .pipe-icon{background:var(--teal);color:#fff;border-color:var(--teal);}
+.pipe-icon{width:25px;height:25px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11.5px;flex:none;color:var(--line);}
+.pipe-label{font-size:12.8px;font-weight:600;}
+.pipe-sub{font-size:11px;color:var(--gray);}
+.result-box{margin-top:14px;border:1px solid var(--line);border-radius:8px;padding:13px 15px;background:var(--paper);display:none;}
+.result-box.show{display:block;}
+.dropzone{border:1.5px dashed var(--line);border-radius:10px;padding:24px;text-align:center;color:var(--gray);font-size:12.5px;margin-bottom:6px;}
+
+/* ================= AGENT (home) VIEW ================= */
+.agent-wrap{flex:1;display:flex;flex-direction:column;min-height:0;}
+.agent-header{height:60px;flex:none;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;}
+.ah-left{display:flex;align-items:center;gap:12px;}
+.ah-avatar{width:36px;height:36px;border-radius:50%;background:var(--teal-soft);color:var(--teal);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;position:relative;flex:none;}
+.ah-status-dot{position:absolute;bottom:-1px;left:-1px;width:10px;height:10px;border-radius:50%;background:var(--gray);border:2px solid var(--surface);}
+.ah-status-dot.live{background:var(--teal);} .ah-status-dot.busy{background:var(--amber);}
+.ah-name{font-weight:800;font-size:14.3px;}
+.ah-state{font-size:11.3px;color:var(--gray);}
+.chat-scroll{flex:1;overflow-y:auto;padding:22px 0 10px;}
+.chat-inner{max-width:740px;margin:0 auto;padding:0 22px;}
+.msg-row{display:flex;margin-bottom:15px;}
+.bubble{max-width:78%;padding:12px 15px;border-radius:16px;font-size:13.5px;line-height:1.85;}
+.msg-row.user .bubble{background:var(--ink);color:#F3F4F1;border-bottom-left-radius:5px;margin-inline-end:auto;}
+.msg-row.agent .bubble{background:var(--surface);border:1px solid var(--line);color:var(--ink);border-bottom-right-radius:5px;margin-inline-start:auto;}
+.bubble.has-card{max-width:88%;padding:15px 17px;}
+.agent-tag{display:flex;align-items:center;gap:7px;margin-bottom:9px;justify-content:flex-end;}
+.agent-tag .ah-avatar{width:20px;height:20px;font-size:9px;}
+.agent-tag span{font-size:10.6px;color:var(--gray);font-weight:600;}
+.typing{display:flex;gap:4px;padding:4px 0;}
+.typing i{width:6px;height:6px;border-radius:50%;background:var(--gray);animation:blink 1.2s infinite;}
+.typing i:nth-child(2){animation-delay:.2s;} .typing i:nth-child(3){animation-delay:.4s;}
+@keyframes blink{0%,80%,100%{opacity:.25;} 40%{opacity:1;}}
+.card-title{font-weight:700;font-size:13.2px;margin-bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.mini-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #EEF0EA;gap:10px;}
+.mini-row:last-child{border-bottom:none;}
+.mini-row .t{font-weight:600;font-size:12.6px;}
+.mini-row .s{color:var(--gray);font-size:11px;margin-top:2px;}
+.cat-bar-row{margin-bottom:9px;}
+.cat-bar-top{display:flex;justify-content:space-between;font-size:11.8px;margin-bottom:4px;}
+.field-table{width:100%;border-collapse:collapse;margin-top:7px;}
+.field-table td{padding:6px 4px;font-size:12.3px;border-bottom:1px solid #EEF0EA;}
+.field-table td:first-child{color:var(--gray);width:34%;}
+.card-actions{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap;}
+.btn-sm{padding:7px 12px;border-radius:8px;font-size:11.6px;font-weight:600;border:1px solid var(--line);background:#fff;}
+.btn-sm.primary{background:var(--ink);color:#fff;border-color:var(--ink);}
+.confirmed-note{color:var(--teal);font-size:11.6px;font-weight:600;margin-top:9px;display:none;align-items:center;gap:6px;}
+.confirmed-note.show{display:flex;}
+.suggestions{max-width:740px;margin:0 auto;padding:0 22px 10px;display:flex;gap:8px;flex-wrap:wrap;}
+.chipbtn{border:1px solid var(--line);background:var(--surface);padding:8px 13px;border-radius:20px;font-size:11.6px;color:var(--ink-soft);white-space:nowrap;}
+.chipbtn:hover{border-color:var(--teal);color:var(--teal);}
+.composer-wrap{flex:none;padding:8px 22px 18px;background:linear-gradient(180deg,rgba(239,241,236,0),var(--paper) 45%);}
+.composer{max-width:740px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:7px 7px 7px 13px;display:flex;align-items:flex-end;gap:7px;box-shadow:0 4px 18px -6px rgba(28,43,57,.15);}
+.composer textarea{flex:1;border:none;outline:none;resize:none;font-family:inherit;font-size:13.5px;padding:8px 4px;max-height:110px;background:transparent;color:var(--ink);}
+.composer-btn{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:15px;flex:none;border:none;background:none;}
+.composer-btn.mic{border:1.5px solid var(--line);}
+.composer-btn.mic.listening{background:var(--stamp-red);color:#fff;border-color:var(--stamp-red);animation:pulse 1.4s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(154,46,46,.35);} 70%{box-shadow:0 0 0 10px rgba(154,46,46,0);} 100%{box-shadow:0 0 0 0 rgba(154,46,46,0);}}
+.composer-btn.send{background:var(--ink);color:#fff;}
+.wave{display:flex;align-items:center;gap:2px;height:15px;}
+.wave i{width:2.5px;background:var(--stamp-red);border-radius:2px;animation:wv .9s infinite ease-in-out;}
+.wave i:nth-child(1){height:6px;} .wave i:nth-child(2){height:12px;animation-delay:.15s;}
+.wave i:nth-child(3){height:15px;animation-delay:.3s;} .wave i:nth-child(4){height:9px;animation-delay:.45s;}
+.wave i:nth-child(5){height:5px;animation-delay:.6s;}
+@keyframes wv{0%,100%{transform:scaleY(.4);} 50%{transform:scaleY(1);}}
+.hint{max-width:740px;margin:6px auto 0;padding:0 26px;font-size:10.8px;color:var(--gray);text-align:center;}
+
+@media(max-width:900px){ .ledger-grid{grid-template-columns:repeat(2,1fr);} .fin-grid{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="36" height="36" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="50" cy="50" r="50" fill="#142236"/>
+          <g stroke="#C6A44E" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="50" y1="24" x2="50" y2="72"/>
+            <line x1="30" y1="32" x2="70" y2="32"/>
+            <line x1="30" y1="32" x2="20" y2="50"/>
+            <line x1="30" y1="32" x2="40" y2="50"/>
+            <path d="M18 50a12 7 0 0 0 24 0"/>
+            <line x1="70" y1="32" x2="60" y2="50"/>
+            <line x1="70" y1="32" x2="80" y2="50"/>
+            <path d="M58 50a12 7 0 0 0 24 0"/>
+            <line x1="38" y1="76" x2="62" y2="76"/>
+            <circle cx="50" cy="24" r="3.4" fill="#C6A44E" stroke="none"/>
+          </g>
+        </svg>
+      </div>
+      <div><div class="brand-title">آرشیو هوشمند پرونده</div><div class="brand-sub">CASE&nbsp;INTELLIGENCE</div></div>
+    </div>
+    <div class="nav" id="navList"></div>
+    <div class="sidebar-foot">دستیار و جستجو: زنده (سرور RAG)<br>داشبورد و پرونده‌ها: داده نمایشی</div>
+  </div>
+  <div class="main" id="mainRoot"></div>
+</div>
+
+<!-- INGEST MODAL -->
+<div class="overlay" id="ingestOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>پردازش سند جدید</h3><div class="modal-close" onclick="closeOverlay('ingestOverlay')">✕</div></div>
+    <div class="modal-body">
+      <div class="dropzone">📄 قرارداد_پیمانکاری_ضمیمه۲.pdf — ۴٫۲ مگابایت</div>
+      <div id="pipeSteps"></div>
+      <div class="result-box" id="pipeResult"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeOverlay('ingestOverlay')">بستن</button>
+        <button class="btn" id="pipeRunBtn" onclick="runPipeline()">شروع پردازش</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DOCUMENT PREVIEW MODAL -->
+<div class="overlay" id="docOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3 id="docModalTitle">مشاهده سند</h3><div class="modal-close" onclick="closeOverlay('docOverlay')">✕</div></div>
+    <div class="modal-body" id="docModalBody"></div>
+  </div>
+</div>
+
+<!-- CASE REPORT MODAL -->
+<div class="overlay" id="reportOverlay">
+  <div class="modal" style="width:640px;">
+    <div class="modal-head"><h3>تولید گزارش پرونده</h3><div class="modal-close" onclick="closeOverlay('reportOverlay')">✕</div></div>
+    <div class="modal-body" id="reportModalBody"></div>
+  </div>
+</div>
+
+<!-- NEW CASE MODAL -->
+<div class="overlay" id="newCaseOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>ایجاد پرونده جدید</h3><div class="modal-close" onclick="closeOverlay('newCaseOverlay')">✕</div></div>
+    <div class="modal-body">
+      <div class="form-row"><label>نوع پرونده</label>
+        <select id="ncType"><option>حقوقی</option><option>کیفری</option></select></div>
+      <div class="form-row"><label>موضوع</label><input id="ncSubject" placeholder="مثال: مطالبه وجه"></div>
+      <div class="form-row"><label>عنوان پرونده</label><input id="ncTitle" placeholder="عنوان کوتاه پرونده"></div>
+      <div class="form-row"><label>دادگاه</label><input id="ncCourt" placeholder="مثال: دادگاه عمومی حقوقی تهران"></div>
+      <div class="form-row"><label>شعبه</label><input id="ncBranch" placeholder="مثال: شعبه ۵"></div>
+      <div class="form-row"><label>طرفین</label><textarea id="ncParties" placeholder="هر طرف در یک خط"></textarea></div>
+      <div class="form-hint">شماره پرونده و سایر فیلدهای رسمی پس از ثبت در سامانه قضایی تکمیل می‌شوند و حدس زده نمی‌شوند.</div>
+      <div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeOverlay('newCaseOverlay')">انصراف</button>
+        <button class="btn" onclick="submitNewCase()">ایجاد پرونده</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SERVER SETTINGS MODAL -->
+<div class="overlay" id="cfgOverlay">
+  <div class="modal" style="width:440px;">
+    <div class="modal-head"><h3>اتصال به سرور</h3><div class="modal-close" onclick="closeOverlay('cfgOverlay')">✕</div></div>
+    <div class="modal-body">
+      <div class="form-row"><label>آدرس سرور</label><input id="cfgUrl" placeholder="http://localhost:8000" dir="ltr"></div>
+      <div class="form-row"><label>توکن API</label><input id="cfgToken" type="password" placeholder="API_TOKEN از فایل .env" dir="ltr"></div>
+      <div class="form-hint" id="cfgMsg"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeOverlay('cfgOverlay')">انصراف</button>
+        <button class="btn" onclick="saveServerSettings()">ذخیره و بررسی</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= LIVE API LAYER ================= */
+const API = {
+  get url(){ try{ return localStorage.getItem('rag.url') || location.origin; }catch(e){ return location.origin; } },
+  get token(){ try{ return localStorage.getItem('rag.token') || ''; }catch(e){ return ''; } },
+  get model(){ try{ return localStorage.getItem('rag.model') || ''; }catch(e){ return ''; } },
+  save(u, t){ try{ localStorage.setItem('rag.url', (u||location.origin).replace(/\/+$/,'')); localStorage.setItem('rag.token', t||''); }catch(e){} },
+};
+async function apiCall(path, opts){
+  opts = opts || {};
+  const headers = { 'ngrok-skip-browser-warning':'true' };
+  if(opts.body) headers['content-type'] = 'application/json';
+  if(API.token) headers['authorization'] = 'Bearer ' + API.token;
+  const r = await fetch(API.url + path, { method: opts.method||'GET', headers, body: opts.body ? JSON.stringify(opts.body) : undefined });
+  const txt = await r.text();
+  let d; try{ d = JSON.parse(txt); }catch(e){ d = { detail: txt }; }
+  if(!r.ok) throw new Error(r.status + ' — ' + (d.detail || r.statusText));
+  return d;
+}
+let SERVER = { ok:false, model:null, provider:null, docs:0 };
+async function refreshServer(){
+  try{
+    const h = await apiCall('/health');
+    SERVER = { ok: !!h.llm_available, model: h.llm_model, provider: h.llm_provider,
+               docs: h.indexed_documents||0, auth: !!h.auth_required };
+  }catch(e){ SERVER = { ok:false, model:null, provider:null, docs:0, err: e.message }; }
+  paintServerBadge();
+  if(SERVER.auth && !API.token) openServerSettings('این سرور به توکن نیاز دارد — API_TOKEN را از فایل .env وارد کنید.');
+}
+function paintServerBadge(){
+  document.querySelectorAll('[data-server-badge]').forEach(function(el){
+    el.innerHTML = SERVER.ok
+      ? '<span class="dotc" style="background:var(--teal)"></span> ' + escapeHtml(SERVER.provider||'') +
+        (SERVER.model ? ' · ' + escapeHtml(SERVER.model) : '') + ' · ' + (SERVER.docs).toLocaleString('fa-IR') + ' سند'
+      : '<span class="dotc" style="background:var(--stamp-red)"></span> ' + (SERVER.err ? 'اتصال ناموفق' : 'آفلاین');
+  });
+}
+function openServerSettings(msg){
+  var cur; try{ cur = localStorage.getItem('rag.url') || location.origin; }catch(e){ cur = location.origin; }
+  document.getElementById('cfgUrl').value = cur;
+  document.getElementById('cfgToken').value = API.token;
+  document.getElementById('cfgMsg').textContent = msg || '';
+  openOverlay('cfgOverlay');
+}
+async function saveServerSettings(){
+  API.save(document.getElementById('cfgUrl').value.trim(), document.getElementById('cfgToken').value.trim());
+  document.getElementById('cfgMsg').textContent = 'در حال بررسی…';
+  await refreshServer();
+  document.getElementById('cfgMsg').textContent = SERVER.ok ? 'متصل شد ✓' : (SERVER.err || 'اتصال برقرار نشد');
+  if(SERVER.ok) setTimeout(function(){ closeOverlay('cfgOverlay'); }, 600);
+}
+
+/* ================= SAMPLE DATA ================= */
+let cases = [
+  { id:"C-1", number:"140200987650012", title:"کلاهبرداری اینترنتی از طریق فروشگاه جعلی", type:"کیفری", subject:"کلاهبرداری رایانه‌ای",
+    labels:["کیفری","جرائم مالی","کلاهبرداری"], confidentiality:"عادی",
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۴", status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: امیر توکلی","متهم: ناشناس (در حال شناسایی)"], lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۱۸", title:"جلسه بازپرسی دوم"}, confidence:0.91,
+    documents:[
+      {name:"شکایت اولیه.pdf", type:"شکایت", date:"۱۴۰۳/۰۵/۰۲", status:"تایید شده"},
+      {name:"گزارش پلیس فتا.pdf", type:"گزارش مرجع انتظامی", date:"۱۴۰۳/۰۵/۱۰", status:"تایید شده"},
+      {name:"صورت‌جلسه بازپرسی اول.pdf", type:"صورت‌جلسه", date:"۱۴۰۳/۰۶/۰۱", status:"نیاز به بازبینی"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۵/۰۲", title:"ثبت شکایت", desc:"شکایت شاکی در دادسرا ثبت شد.", src:"شکایت اولیه.pdf", pending:false},
+      {date:"۱۴۰۳/۰۵/۱۰", title:"ارجاع به پلیس فتا", desc:"پرونده جهت شناسایی فنی مرجع ارجاع شد.", src:"گزارش پلیس فتا.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۰۱", title:"اولین جلسه بازپرسی", desc:"اظهارات شاکی اخذ شد؛ مهلت ۱۵ روزه تعیین گردید.", src:"صورت‌جلسه بازپرسی اول.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۱۸", title:"جلسه بازپرسی دوم", desc:"بررسی مستندات شناسایی IP و حساب‌های بانکی.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۳۲۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۴۵٬۰۰۰٬۰۰۰ ریال", received:"۲۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"کلاهبرداری فروشگاه اینترنتی جعلی (شعبه ۲)", match:88, outcome:"محکومیت متهم"},
+      {title:"کلاهبرداری از طریق درگاه پرداخت جعلی", match:81, outcome:"محکومیت متهم"},
+      {title:"کلاهبرداری شبکه‌های اجتماعی", match:74, outcome:"قرار منع تعقیب (فقدان ادله)"},
+    ],
+    pending:["ارائه استعلام حساب بانکی متهم","پیگیری پاسخ پلیس فتا از اپراتور اینترنت"],
+  },
+  { id:"C-2", number:"140201123400089", title:"مطالبه وجه قرارداد پیمانکاری ساختمانی", type:"حقوقی", subject:"مطالبه وجه / قرارداد",
+    labels:["حقوقی","قرارداد"], confidentiality:"عادی",
+    court:"دادگاه عمومی حقوقی تهران", branch:"شعبه ۱۲", status:"open", statusLabel:"در جریان رسیدگی", priority:"normal",
+    parties:["خواهان: شرکت سازه پویا","خوانده: مهدی امینی"], lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۰۹", title:"جلسه رسیدگی"}, confidence:0.95,
+    documents:[
+      {name:"دادخواست.pdf", type:"دادخواست", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"قرارداد پیمانکاری.pdf", type:"قرارداد", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"صورت وضعیت شماره ۳.pdf", type:"سند مالی", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"لایحه دفاعیه خوانده.pdf", type:"لایحه", date:"۱۴۰۳/۰۴/۲۰", status:"نیاز به بازبینی"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۳/۱۴", title:"ثبت دادخواست", desc:"مطالبه مبلغ صورت‌وضعیت‌های پرداخت‌نشده.", src:"دادخواست.pdf", pending:false},
+      {date:"۱۴۰۳/۰۴/۲۰", title:"دریافت لایحه دفاعیه", desc:"خوانده ادعای نقص در اجرای تعهدات پیمانکار را مطرح کرد.", src:"لایحه دفاعیه خوانده.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۰۹", title:"جلسه رسیدگی", desc:"استماع اظهارات طرفین و کارشناس فنی.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۱٬۸۵۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۹۰٬۰۰۰٬۰۰۰ ریال", received:"۹۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"مطالبه وجه قرارداد پیمانکاری مشابه (شعبه ۵)", match:83, outcome:"محکومیت خوانده به پرداخت بخشی از مبلغ"},
+      {title:"مطالبه صورت‌وضعیت پیمانکاری راه", match:69, outcome:"صلح و سازش"},
+    ],
+    pending:["ارجاع پرونده به کارشناس رسمی دادگستری","پیگیری ابلاغ به خوانده"],
+  },
+  { id:"C-3", number:"140105234570021", title:"تخلیه ملک تجاری به علت انقضای مدت اجاره", type:"حقوقی", subject:"تخلیه / اجاره",
+    labels:["حقوقی","ملک","تخلیه"], confidentiality:"عادی",
+    court:"شورای حل اختلاف", branch:"شعبه ۷", status:"closed-win", statusLabel:"مختومه – به نفع موکل", priority:"normal",
+    parties:["خواهان: زهرا کریمی (موجر)","خوانده: فروشگاه البرز"], lawyer:"فاطمه رضایی", nextEvent:null, confidence:0.97,
+    documents:[
+      {name:"دادخواست تخلیه.pdf", type:"دادخواست", date:"۱۴۰۱/۰۲/۰۵", status:"تایید شده"},
+      {name:"قرارداد اجاره.pdf", type:"قرارداد", date:"۱۴۰۱/۰۲/۰۵", status:"تایید شده"},
+      {name:"دادنامه.pdf", type:"دادنامه", date:"۱۴۰۱/۰۵/۱۱", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۱/۰۲/۰۵", title:"ثبت دادخواست تخلیه", desc:"—", src:"دادخواست تخلیه.pdf", pending:false},
+      {date:"۱۴۰۱/۰۵/۱۱", title:"صدور دادنامه", desc:"حکم به تخلیه ملک و پرداخت اجرت‌المثل صادر شد.", src:"دادنامه.pdf", pending:false},
+    ],
+    financial:{claimed:"۴۵۰٬۰۰۰٬۰۰۰ ریال", awarded:"۴۱۰٬۰۰۰٬۰۰۰ ریال", fee:"۲۵٬۰۰۰٬۰۰۰ ریال", received:"۲۵٬۰۰۰٬۰۰۰ ریال"},
+    similar:[{title:"تخلیه مغازه انقضای اجاره (شعبه ۳)", match:79, outcome:"حکم به تخلیه"}],
+    pending:["پیگیری اجرای حکم و تحویل ملک"],
+  },
+  { id:"C-4", number:"140300456780033", title:"خیانت در امانت نسبت به خودروی امانی", type:"کیفری", subject:"خیانت در امانت",
+    labels:["کیفری","خیانت در امانت"], confidentiality:"محرمانه",
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۹", status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: حسین نوروزی","متهم: رضا صالحی"], lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۰۲", title:"مهلت ارائه لایحه دفاعیه"}, confidence:0.62,
+    documents:[
+      {name:"شکایت.pdf", type:"شکایت", date:"۱۴۰۳/۰۶/۰۸", status:"تایید شده"},
+      {name:"وکالت‌نامه خودرو.jpg", type:"سند مالکیت", date:"۱۴۰۳/۰۶/۰۸", status:"نیاز به بازبینی (کیفیت اسکن پایین)"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۶/۰۸", title:"ثبت شکایت", desc:"عدم استرداد خودرو پس از پایان مدت امانت.", src:"شکایت.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۰۲", title:"مهلت ارائه لایحه دفاعیه متهم", desc:"در انتظار وصول لایحه.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۱٬۱۰۰٬۰۰۰٬۰۰۰ ریال (ارزش خودرو)", awarded:"—", fee:"۳۰٬۰۰۰٬۰۰۰ ریال", received:"۱۵٬۰۰۰٬۰۰۰ ریال"},
+    similar:[{title:"خیانت در امانت نسبت به وسیله نقلیه اجاره‌ای", match:72, outcome:"محکومیت متهم"}],
+    pending:["نیاز به بازبینی انسانی: کیفیت اسکن سند مالکیت پایین است"],
+    needsReview:true, reviewReason:"کیفیت OCR سند مالکیت پایین است و تاریخ درج‌شده با شکایت اولیه اختلاف دارد.",
+    reviewDetails:{
+      uncertain:"تاریخ ثبت شکایت در دو منبع مختلف با هم مطابقت ندارد.",
+      alternatives:[
+        {label:"۱۴۰۳/۰۶/۰۸ (بر اساس فرم شکایت)", src:"شکایت.pdf"},
+        {label:"۱۴۰۳/۰۶/۰۹ (بر اساس دفتر ثبت دادسرا)", src:"اسکن دفتر ثبت (کیفیت پایین)"},
+      ],
+      decision:"لطفاً تاریخ صحیح ثبت شکایت را تایید کنید تا تایم‌لاین پرونده اصلاح شود."
+    }
+  },
+  { id:"C-5", number:"140004890120076", title:"نقض قرارداد همکاری تجاری بین دو شرکت", type:"حقوقی", subject:"نقض قرارداد",
+    labels:["حقوقی","قرارداد","نقض قرارداد"], confidentiality:"عادی",
+    court:"دادگاه عمومی حقوقی تهران", branch:"شعبه ۲", status:"closed-loss", statusLabel:"مختومه – خلاف نظر موکل", priority:"normal",
+    parties:["خواهان: شرکت آریا تجارت","خوانده: شرکت پارس صنعت"], lawyer:"فاطمه رضایی", nextEvent:null, confidence:0.96,
+    documents:[
+      {name:"دادخواست.pdf", type:"دادخواست", date:"۱۴۰۰/۰۹/۰۱", status:"تایید شده"},
+      {name:"دادنامه بدوی.pdf", type:"دادنامه", date:"۱۴۰۱/۰۱/۲۰", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۰/۰۹/۰۱", title:"ثبت دادخواست", desc:"—", src:"دادخواست.pdf", pending:false},
+      {date:"۱۴۰۱/۰۱/۲۰", title:"صدور رای بدوی", desc:"دعوی خواهان به دلیل عدم اثبات ورود خسارت رد شد.", src:"دادنامه بدوی.pdf", pending:false},
+    ],
+    financial:{claimed:"۲٬۴۰۰٬۰۰۰٬۰۰۰ ریال", awarded:"۰ ریال", fee:"۱۲۰٬۰۰۰٬۰۰۰ ریال", received:"۱۲۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[{title:"نقض قرارداد توزیع محصولات", match:66, outcome:"رد دعوی"}],
+    pending:["بررسی امکان تجدیدنظرخواهی تا پایان مهلت قانونی"],
+  },
+  { id:"C-6", number:"140306778900014", title:"سرقت مسلحانه از واحد صنفی", type:"کیفری", subject:"سرقت مقرون به آزار",
+    labels:["کیفری","سرقت"], confidentiality:"عادی",
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۱", status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: فروشگاه زنجیره‌ای رفاه","متهم: در بازداشت موقت"], lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۶/۳۰", title:"جلسه دادگاه کیفری یک"}, confidence:0.89,
+    documents:[
+      {name:"کیفرخواست.pdf", type:"کیفرخواست", date:"۱۴۰۳/۰۶/۱۵", status:"تایید شده"},
+      {name:"گزارش تصاویر دوربین.pdf", type:"ادله اثباتی", date:"۱۴۰۳/۰۵/۲۰", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۵/۲۰", title:"وقوع و گزارش اولیه", desc:"—", src:"گزارش تصاویر دوربین.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۱۵", title:"صدور کیفرخواست", desc:"پرونده جهت رسیدگی به دادگاه کیفری یک ارسال شد.", src:"کیفرخواست.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۳۰", title:"جلسه دادگاه کیفری یک", desc:"—", src:"—", pending:true},
+    ],
+    financial:{claimed:"۸۰۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۶۰٬۰۰۰٬۰۰۰ ریال", received:"۶۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"سرقت مسلحانه از واحد صنفی مشابه", match:85, outcome:"محکومیت به حبس تعزیری"},
+      {title:"سرقت با تهدید سلاح سرد", match:70, outcome:"محکومیت به حبس تعزیری"},
+    ],
+    pending:["هماهنگی حضور شاهدان در جلسه دادگاه"],
+  },
+];
+
+const statusMeta = {"open":{cls:"open",txt:"در جریان"},"closed-win":{cls:"closed-win",txt:"مختومه (موفق)"},"closed-loss":{cls:"closed-loss",txt:"مختومه (ناموفق)"}};
+
+const taxonomy = [
+  {root:"حقوقی", cats:[
+    {name:"ملک", leaves:["تخلیه","مالکیت","سند"]},
+    {name:"قرارداد", leaves:["نقض قرارداد","فسخ"]},
+    {name:"مالی", leaves:["مطالبه وجه"]},
+  ]},
+  {root:"کیفری", cats:[
+    {name:"جرائم مالی", leaves:["کلاهبرداری","خیانت در امانت"]},
+    {name:"جرائم علیه اموال", leaves:["سرقت"]},
+  ]},
+];
+
+/* ================= HELPERS ================= */
+function caseIdHTML(num, size){
+  const groups=[num.slice(0,4),num.slice(4,7),num.slice(7)];
+  const cls = size==='lg' ? 'case-id lg':'case-id';
+  return `<span class="${cls}">`+groups.map(g=>`<span class="grp">${g.split('').map(d=>`<span class="d">${d}</span>`).join('')}</span>`).join('')+`</span>`;
+}
+function stampHTML(c){
+  if(c.needsReview) return `<span class="stamp review"><span class="dotc"></span>نیاز به بازبینی انسانی</span>`;
+  const m = statusMeta[c.status];
+  const urgent = c.priority==='urgent' && c.status==='open';
+  return `<span class="stamp ${urgent?'urgent':m.cls}"><span class="dotc"></span>${urgent?'اولویت بالا · ':''}${m.txt}</span>`;
+}
+function confStamp(v){
+  const pct=Math.round(v*100);
+  const cls = pct>=85?'closed-win':pct>=60?'review':'urgent';
+  return `<span class="stamp ${cls}"><span class="dotc"></span>اطمینان تطبیق ${pct.toLocaleString('fa-IR')}٪</span>`;
+}
+function escapeHtml(s){ const d=document.createElement('div'); d.innerText=s; return d.innerHTML; }
+
+/* ================= NAV ================= */
+const navItems = [
+  {id:'agent', n:'۰۱', label:'دستیار پرونده'},
+  {id:'dashboard', n:'۰۲', label:'داشبورد'},
+  {id:'cases', n:'۰۳', label:'پرونده‌ها'},
+  {id:'events', n:'۰۴', label:'رویدادها و یادآورها'},
+  {id:'ingest', n:'۰۵', label:'دریافت و بایگانی سند'},
+  {id:'search', n:'۰۶', label:'جستجوی معنایی و مشابه‌یاب'},
+  {id:'taxonomy', n:'۰۷', label:'طبقه‌بندی و برچسب‌ها'},
+  {id:'review', n:'۰۸', label:'بازبینی انسانی', badgeFn:()=>cases.filter(c=>c.needsReview).length},
+  {id:'analytics', n:'۰۹', label:'آمار و تحلیل'},
+];
+let activeView = 'agent';
+let openCaseId=null, openTab='summary', labelFilter=null;
+
+function renderNav(){
+  const wrap = document.getElementById('navList');
+  wrap.innerHTML = navItems.map(it=>{
+    const badge = it.badgeFn ? it.badgeFn() : 0;
+    return `<div class="nav-item ${activeView===it.id?'active':''}" onclick="goto('${it.id}')">
+      <span class="n">${it.n}</span><span>${it.label}</span>
+      ${badge>0? `<span class="badge">${badge.toLocaleString('fa-IR')}</span>`:''}
+    </div>`;
+  }).join('');
+}
+function goto(id){ activeView=id; if(id==='cases') labelFilter=null; render(); }
+
+/* ================= ROUTER ================= */
+function render(){
+  renderNav();
+  const root = document.getElementById('mainRoot');
+  if(activeView==='agent'){ root.innerHTML = agentShellHTML(); mountAgent(); paintServerBadge(); return; }
+  root.innerHTML = classicTopbar() + `<div class="scroll-area"><div class="view" id="viewBody"></div></div>`;
+  const vb = document.getElementById('viewBody');
+  if(activeView==='dashboard') vb.innerHTML = dashboardHTML();
+  else if(activeView==='cases') vb.innerHTML = caseListHTML('');
+  else if(activeView==='case-detail') vb.innerHTML = caseDetailHTML(openCaseId, openTab);
+  else if(activeView==='events') vb.innerHTML = eventsPageHTML();
+  else if(activeView==='ingest') vb.innerHTML = ingestPageHTML();
+  else if(activeView==='search') vb.innerHTML = searchPageHTML();
+  else if(activeView==='taxonomy') vb.innerHTML = taxonomyPageHTML();
+  else if(activeView==='review') vb.innerHTML = reviewPageHTML();
+  else if(activeView==='analytics') vb.innerHTML = analyticsPageHTML();
+  wireBell();
+  paintServerBadge();
+}
+
+function classicTopbar(){
+  const titleMap = {dashboard:'داشبورد', cases:'پرونده‌ها', 'case-detail':'جزئیات پرونده', events:'رویدادها و یادآورها',
+    ingest:'دریافت و بایگانی سند', search:'جستجوی معنایی و مشابه‌یاب', taxonomy:'طبقه‌بندی و برچسب‌ها', review:'بازبینی انسانی', analytics:'آمار و تحلیل'};
+  const upcoming = cases.filter(c=>c.nextEvent).sort((a,b)=>a.nextEvent.date.localeCompare(b.nextEvent.date));
+  return `
+    <div class="topbar">
+      <div class="tb-left">
+        <button class="icon-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">☰</button>
+        <div><div class="tb-title">${titleMap[activeView]||''}</div><div class="tb-access">سطح دسترسی: وکیل پایه یک · پرونده‌های محرمانه سایر کاربران نمایش داده نمی‌شود</div></div>
+      </div>
+      <div class="tb-right" style="position:relative;">
+        <button class="icon-btn" onclick="toggleBell()">🔔<span class="badge" style="position:absolute;top:-5px;left:-5px;background:var(--stamp-red);color:#fff;font-size:9px;border-radius:50%;width:15px;height:15px;display:flex;align-items:center;justify-content:center;">${upcoming.length.toLocaleString('fa-IR')}</span></button>
+        <div class="bell-panel" id="bellPanel">
+          <h4>یادآورهای پیش رو</h4>
+          ${upcoming.map(c=>`<div class="bell-row"><b>${c.nextEvent.title}</b><div class="d">${c.title} · <span class="mono">${c.nextEvent.date}</span></div></div>`).join('')}
+          <div class="bell-note">یادآورها توسط زمان‌بند مستقل سامانه ایجاد می‌شوند، نه توسط مدل زبانی؛ این فهرست صرفاً نمایشی است.</div>
+        </div>
+        <span class="tb-access" data-server-badge style="display:flex;align-items:center;gap:5px;white-space:nowrap;"></span>
+        <button class="icon-btn" onclick="openServerSettings()" title="اتصال به سرور">⚙</button>
+        <button class="icon-btn" onclick="goto('agent')" title="بازگشت به دستیار">💬</button>
+        <div class="user-chip"><div class="avatar">ف.ر</div><div>فاطمه رضایی<br><span style="color:var(--gray);font-size:10.6px;">وکیل پایه یک</span></div></div>
+      </div>
+    </div>`;
+}
+function toggleBell(){ document.getElementById('bellPanel').classList.toggle('show'); }
+function wireBell(){ document.addEventListener('click', function(e){ }, {once:true}); }
+
+/* ================= DASHBOARD ================= */
+function dashboardHTML(){
+  const openCases = cases.filter(c=>c.status==='open');
+  const urgentReview = cases.filter(c=>c.needsReview);
+  const upcoming = cases.filter(c=>c.nextEvent).sort((a,b)=>a.nextEvent.date.localeCompare(b.nextEvent.date));
+  return `
+    <div class="view-head">
+      <div><div class="view-title">داشبورد</div><div class="view-sub">نمای کلی وضعیت پرونده‌ها، مهلت‌ها و اسناد در انتظار بررسی</div></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost" onclick="openOverlay('newCaseOverlay')">+ پرونده جدید</button>
+        <button class="btn" onclick="openOverlay('ingestOverlay');resetPipe();">+ بایگانی سند جدید</button>
+      </div>
+    </div>
+    <div class="ledger-grid">
+      <div class="ledger-card"><div class="num">${openCases.length.toLocaleString('fa-IR')}</div><div class="lbl">پرونده در جریان</div></div>
+      <div class="ledger-card accent-amber"><div class="num">${upcoming.length.toLocaleString('fa-IR')}</div><div class="lbl">رویداد در ۳۰ روز آینده</div></div>
+      <div class="ledger-card accent-red"><div class="num">${urgentReview.length.toLocaleString('fa-IR')}</div><div class="lbl">نیازمند بازبینی انسانی</div></div>
+      <div class="ledger-card accent-teal"><div class="num">۹۴٪</div><div class="lbl">میانگین اطمینان تطبیق پرونده</div></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>رویدادها و مهلت‌های نزدیک</h3></div>
+      <div class="panel-body">${upcoming.map(c=>`
+        <div class="list-row row-hover" onclick="openCase('${c.id}','timeline')">
+          <div><div style="font-weight:600;font-size:13.2px;">${c.nextEvent.title}</div><div style="color:var(--gray);font-size:11.8px;margin-top:2px;">${c.title}</div></div>
+          <div style="display:flex;align-items:center;gap:12px;"><span class="mono" style="font-size:12.3px;">${c.nextEvent.date}</span>${stampHTML(c)}</div>
+        </div>`).join('')}</div></div>
+    <div class="panel"><div class="panel-head"><h3>موارد نیازمند بازبینی انسانی</h3><button class="btn ghost sm" onclick="goto('review')">مشاهده صف کامل</button></div>
+      <div class="panel-body">${urgentReview.length? urgentReview.map(c=>`
+        <div class="list-row row-hover" onclick="goto('review')">
+          <div><div style="font-weight:600;font-size:13.2px;">${c.title}</div><div style="color:var(--stamp-red);font-size:11.5px;margin-top:2px;">${c.reviewReason}</div></div>
+          <button class="btn ghost sm">بررسی</button>
+        </div>`).join('') : `<div style="padding:12px 4px;color:var(--gray);">موردی برای بازبینی وجود ندارد.</div>`}</div></div>`;
+}
+
+/* ================= CASE LIST ================= */
+function caseListHTML(term){
+  term=(term||'').trim();
+  const filtered = cases.filter(c=>{
+    const matchesTerm = !term || c.title.includes(term) || c.number.includes(term);
+    const matchesLabel = !labelFilter || (c.labels||[]).includes(labelFilter);
+    return matchesTerm && matchesLabel;
+  });
+  return `
+    <div class="view-head">
+      <div><div class="view-title">پرونده‌ها</div><div class="view-sub">${filtered.length.toLocaleString('fa-IR')} پرونده${labelFilter? ' · برچسب: '+labelFilter:''}</div></div>
+      <div style="display:flex;gap:8px;">
+        ${labelFilter? `<button class="btn ghost sm" onclick="labelFilter=null;render();">حذف فیلتر برچسب</button>`:''}
+        <input id="listSearch" placeholder="جستجو…" oninput="filterList(this.value)" style="border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-family:inherit;font-size:12.5px;">
+        <button class="btn" onclick="openOverlay('newCaseOverlay')">+ پرونده جدید</button>
+      </div>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>شماره پرونده</th><th>عنوان</th><th>برچسب‌ها</th><th>دادگاه / شعبه</th><th>وضعیت</th><th>رویداد بعدی</th></tr></thead>
+      <tbody id="caseListBody">${caseRows(filtered)}</tbody>
+    </table></div>`;
+}
+function caseRows(filtered){
+  return filtered.map(c=>`
+    <tr class="row-hover" onclick="openCase('${c.id}')">
+      <td>${caseIdHTML(c.number)}</td>
+      <td class="case-title-cell">${c.title}<div class="case-sub">${c.subject||''}</div></td>
+      <td>${(c.labels||[]).map(l=>`<span class="chip">${l}</span>`).join('')}</td>
+      <td>${c.court}<div class="case-sub">${c.branch}</div></td>
+      <td>${stampHTML(c)}</td>
+      <td class="mono" style="font-size:12px;">${c.nextEvent? c.nextEvent.date : '—'}</td>
+    </tr>`).join('');
+}
+function filterList(v){ document.getElementById('caseListBody').innerHTML = caseRows(cases.filter(c=>!v||c.title.includes(v)||c.number.includes(v))); }
+
+/* ================= CASE DETAIL ================= */
+const tabsDef = [
+  {id:'summary', label:'خلاصه'}, {id:'timeline', label:'تایم‌لاین'}, {id:'documents', label:'اسناد'},
+  {id:'financial', label:'اطلاعات مالی'}, {id:'similar', label:'پرونده‌های مشابه'}, {id:'pending', label:'اقدامات در انتظار'},
+  {id:'json', label:'داده ساختاریافته (JSON)'},
+];
+window.openCase = function(id, tab){ openCaseId=id; openTab=tab||'summary'; activeView='case-detail'; render(); };
+
+function caseDetailHTML(id, tab){
+  const c = cases.find(x=>x.id===id);
+  if(!c) return caseListHTML('');
+  let body='';
+  if(tab==='summary'){
+    body = `
+      ${c.needsReview? `<div class="disclaimer">⚠ این پرونده نیازمند بازبینی انسانی است: ${c.reviewReason} — <a href="#" onclick="goto('review');return false;" style="color:#7A5305;">مشاهده در صف بازبینی</a></div>`:''}
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px;">
+        <div><h4 style="margin-top:0;">طرفین پرونده</h4>
+          <ul style="padding-inline-start:18px;margin:0 0 16px;">${(c.parties||[]).map(p=>`<li style="margin-bottom:4px;">${p}</li>`).join('')}</ul>
+          <h4>آخرین وضعیت</h4><p style="color:var(--ink-soft);margin:0 0 16px;">${c.timeline[c.timeline.length-1].title} — ${c.timeline[c.timeline.length-1].desc||''}</p>
+          <h4>برچسب‌ها</h4><div>${(c.labels||[]).map(l=>`<span class="chip">${l}</span>`).join('')}<span class="chip" style="background:var(--gray-soft);">محرمانگی: ${c.confidentiality||'عادی'}</span></div>
+        </div>
+        <div><h4 style="margin-top:0;">وکیل پرونده</h4><p style="margin:0 0 16px;">${c.lawyer}</p>
+          <h4>اطمینان تطبیق سیستم</h4><div style="margin-bottom:16px;">${confStamp(c.confidence)}</div>
+          <h4>اسناد اصلی</h4><p style="color:var(--gray);font-size:12.6px;">${c.documents.length.toLocaleString('fa-IR')} سند بایگانی‌شده</p></div>
+      </div>`;
+  } else if(tab==='timeline'){
+    body = `${c.timeline.map(t=>`
+      <div class="tl-item ${t.pending?'pending':''}">
+        <div class="tl-dot">${t.pending?'⏳':'✓'}</div>
+        <div><div class="tl-date">${t.date}</div><div class="tl-title">${t.title}</div>
+          ${t.desc&&t.desc!=='—'?`<div class="tl-desc">${t.desc}</div>`:''}
+          ${t.src&&t.src!=='—'?`<div class="tl-src">منبع سند: ${t.src}</div>`:''}
+        </div></div>`).join('')}`;
+  } else if(tab==='documents'){
+    body = c.documents.map((d,i)=>`
+      <div class="doc-row"><div class="doc-icon">${d.name.split('.').pop().toUpperCase()}</div>
+        <div><div class="doc-name">${d.name}</div><div class="doc-meta">${d.type} · بایگانی‌شده در ${d.date}</div></div>
+        <div class="doc-right"><span class="stamp ${d.status.includes('نیاز')?'review':'closed-win'}"><span class="dotc"></span>${d.status}</span><button class="btn ghost sm" onclick="viewDocument('${c.id}',${i})">مشاهده</button></div>
+      </div>`).join('');
+  } else if(tab==='financial'){
+    body = `<div class="fin-grid">
+      <div class="fin-box"><div class="lbl">مبلغ خواسته / مطالبه‌شده</div><div class="val mono">${c.financial.claimed}</div></div>
+      <div class="fin-box"><div class="lbl">مبلغ حکم‌شده</div><div class="val mono">${c.financial.awarded}</div></div>
+      <div class="fin-box"><div class="lbl">حق‌الوکاله توافق‌شده</div><div class="val mono">${c.financial.fee}</div></div>
+      <div class="fin-box"><div class="lbl">مبلغ دریافت‌شده</div><div class="val mono">${c.financial.received}</div></div>
+    </div><p style="color:var(--gray);font-size:11.8px;margin-top:14px;">مبالغ بدون تبدیل واحد ارزی و مطابق اسناد بایگانی‌شده ثبت شده‌اند.</p>`;
+  } else if(tab==='similar'){
+    body = `<div class="disclaimer">این فهرست «پرونده‌های مشابه تاریخی» است و پیش‌بینی نتیجه پرونده جاری نیست.</div>
+      ${c.similar.map(s=>`<div class="sim-row"><div class="sim-top">
+        <div><div style="font-weight:600;font-size:13.1px;">${s.title}</div><div style="color:var(--gray);font-size:11.5px;margin-top:2px;">نتیجه: ${s.outcome}</div></div>
+        <div class="sim-pct">${s.match.toLocaleString('fa-IR')}٪</div></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${s.match}%"></div></div></div>`).join('')}`;
+  } else if(tab==='pending'){
+    body = c.pending.map((p,i)=>`<div class="action-row" style="cursor:pointer;" onclick="this.classList.toggle('done');this.querySelector('.chk').innerHTML=this.classList.contains('done')?'✓':'';this.querySelector('.pt').style.textDecoration=this.classList.contains('done')?'line-through':'none';this.querySelector('.pt').style.color=this.classList.contains('done')?'var(--gray)':'var(--ink)';">
+      <div class="chk" style="display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--teal);"></div>
+      <div class="pt" style="font-size:13.2px;">${p}</div>
+    </div>`).join('');
+  } else if(tab==='json'){
+    const schema = {
+      case_id: c.id, case_number: c.number, case_type: c.type, subject: c.subject||"",
+      court: c.court, branch: c.branch, status: c.status, labels: c.labels||[],
+      confidentiality: c.confidentiality||"عادی",
+      financial_information: c.financial, confidence: c.confidence,
+      requires_human_review: !!c.needsReview,
+    };
+    body = `<div class="json-box">${escapeHtml(JSON.stringify(schema, null, 2))}</div>
+      <p style="color:var(--gray);font-size:11.5px;margin-top:10px;">نمایی از داده ساختاریافته زیرین پرونده، مطابق شمای ذخیره‌سازی سامانه؛ صرفاً جهت شفافیت فنی نمایش داده می‌شود.</p>`;
+  }
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <button class="btn ghost" onclick="goto('cases')">→ بازگشت به فهرست پرونده‌ها</button>
+      <button class="btn ghost sm" onclick="generateCaseReport('${c.id}')">📄 تولید گزارش پرونده</button>
+    </div>
+    <div class="case-cover">
+      <div class="case-cover-top">
+        <div>${caseIdHTML(c.number,'lg')}<h2>${c.title}</h2>${(c.labels||[]).map(l=>`<span class="chip">${l}</span>`).join('')}</div>
+        ${stampHTML(c)}
+      </div>
+      <div class="case-meta">
+        <div><b>نوع پرونده:</b> ${c.type}</div><div><b>دادگاه:</b> ${c.court}</div><div><b>شعبه:</b> ${c.branch}</div>
+        <div><b>موضوع:</b> ${c.subject||'—'}</div>
+        ${c.nextEvent? `<div><b>رویداد بعدی:</b> <span class="mono">${c.nextEvent.date}</span> — ${c.nextEvent.title}</div>`:''}
+      </div>
+      <div class="folder-tabs">${tabsDef.map(t=>`<div class="folder-tab ${t.id===tab?'active':''}" onclick="openCase('${c.id}','${t.id}')">${t.label}</div>`).join('')}</div>
+    </div>
+    <div class="tab-panel">${body}</div>`;
+}
+
+/* ================= EVENTS PAGE ================= */
+function eventsPageHTML(){
+  const items=[]; cases.forEach(c=>c.timeline.forEach(t=>items.push({...t,case:c})));
+  items.sort((a,b)=>a.date.localeCompare(b.date));
+  return `
+    <div class="view-head"><div><div class="view-title">رویدادها و یادآورها</div><div class="view-sub">تمام رویدادهای ثبت‌شده در تمام پرونده‌ها</div></div></div>
+    <div class="panel"><div class="panel-body">${items.map(t=>`
+      <div class="list-row row-hover" onclick="openCase('${t.case.id}','timeline')">
+        <div><div style="font-weight:600;font-size:13.1px;">${t.title}</div><div style="color:var(--gray);font-size:11.8px;margin-top:2px;">${t.case.title}</div></div>
+        <div style="display:flex;align-items:center;gap:12px;"><span class="mono" style="font-size:12.1px;">${t.date}</span>
+        ${t.pending? `<span class="stamp review"><span class="dotc"></span>در انتظار</span>`:`<span class="stamp closed-win"><span class="dotc"></span>ثبت‌شده</span>`}</div>
+      </div>`).join('')}</div></div>`;
+}
+
+/* ================= INGEST PAGE + PIPELINE ================= */
+function ingestPageHTML(){
+  return `
+    <div class="view-head"><div><div class="view-title">دریافت و بایگانی سند</div><div class="view-sub">شبیه‌سازی خط پردازش هوشمند اسناد ورودی</div></div></div>
+    <div class="panel"><div class="panel-body" style="padding-top:16px;">
+      <div class="dropzone">📥 فایل را اینجا رها کنید یا برای بارگذاری کلیک کنید (PDF، تصویر، Word)</div>
+      <div style="text-align:center;margin-top:14px;"><button class="btn" onclick="openOverlay('ingestOverlay');resetPipe();">شبیه‌سازی بارگذاری سند نمونه</button></div>
+    </div></div>
+    <div class="panel"><div class="panel-head"><h3>مراحل خط پردازش سند</h3></div>
+      <div class="panel-body" style="font-size:12.6px;color:var(--ink-soft);padding-top:10px;padding-bottom:14px;">
+      اعتبارسنجی سند ← OCR و درک سند ← طبقه‌بندی ← استخراج موجودیت‌ها ← تطبیق با پرونده‌ها ← اعتبارسنجی اطلاعات ← ایجاد/به‌روزرسانی پرونده ← استخراج رویداد و اطلاعات مالی ← نمایه‌سازی و بایگانی نهایی
+    </div></div>`;
+}
+const pipeStages=[
+  {label:'اعتبارسنجی سند', sub:'بررسی فرمت، خوانایی و صحت فایل'},
+  {label:'OCR و درک ساختار سند', sub:'استخراج متن، جداول و امضاها'},
+  {label:'طبقه‌بندی سند', sub:'نوع سند: قرارداد پیمانکاری — دسته: حقوقی / قرارداد'},
+  {label:'استخراج موجودیت‌ها', sub:'طرفین، تاریخ‌ها، مبالغ، شماره پرونده'},
+  {label:'تطبیق با پرونده‌های موجود', sub:'مقایسه با شماره پرونده، طرفین و شعبه'},
+  {label:'نمایه‌سازی و بایگانی نهایی', sub:'افزودن به تایم‌لاین و آرشیو جستجوپذیر'},
+];
+function openOverlay(id){ document.getElementById(id).classList.add('show'); }
+function closeOverlay(id){ document.getElementById(id).classList.remove('show'); }
+function resetPipe(){
+  document.getElementById('pipeSteps').innerHTML = pipeStages.map((s,i)=>`
+    <div class="pipe-step" id="step-${i}"><div class="pipe-icon">${i+1}</div><div><div class="pipe-label">${s.label}</div><div class="pipe-sub">${s.sub}</div></div></div>`).join('');
+  document.getElementById('pipeResult').classList.remove('show');
+  document.getElementById('pipeRunBtn').disabled=false; document.getElementById('pipeRunBtn').textContent='شروع پردازش';
+}
+function runPipeline(){
+  document.getElementById('pipeRunBtn').disabled=true; document.getElementById('pipeRunBtn').textContent='در حال پردازش…';
+  pipeStages.forEach((s,i)=>{ setTimeout(()=>{
+    const el=document.getElementById(`step-${i}`); if(!el) return;
+    el.classList.add('active'); if(i>0){ const prev=document.getElementById(`step-${i-1}`); if(prev) prev.classList.add('done'); }
+    if(i===pipeStages.length-1){ setTimeout(()=>{
+      el.classList.add('done');
+      const res=document.getElementById('pipeResult'); res.classList.add('show');
+      res.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;"><b style="font-size:13px;">نتیجه تطبیق</b>${confStamp(0.95)}</div>
+        <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.9;">سند به‌عنوان «ضمیمه قرارداد» شناسایی و به پرونده ${caseIdHTML('140201123400089')} «مطالبه وجه قرارداد پیمانکاری ساختمانی» متصل شد.</div>
+        <div style="margin-top:12px;"><button class="btn teal" onclick="closeOverlay('ingestOverlay');openCase('C-2','timeline')">مشاهده در پرونده</button></div>`;
+      document.getElementById('pipeRunBtn').textContent='انجام شد ✓';
+    },500); }
+  }, i*600); });
+}
+
+/* ================= SEARCH PAGE ================= */
+let searchQuery='', searchAnchorCase=cases[0];
+function searchPageHTML(){
+  return `
+    <div class="view-head"><div><div class="view-title">جستجوی معنایی و مشابه‌یاب</div><div class="view-sub">جستجو در محتوای پرونده‌ها فراتر از تطبیق کلیدواژه‌ای</div></div></div>
+    <div class="panel"><div class="panel-body" style="padding-top:14px;">
+      <input id="semSearchInput" value="${escapeHtml(searchQuery)}" placeholder="مثال: پرونده‌های کیفری مشابه با نتیجه محکومیت در شعبه ۴..." style="width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 14px;font-family:inherit;font-size:13px;margin-bottom:12px;" onkeydown="if(event.key==='Enter') runSemanticSearch(this.value)">
+      <p style="color:var(--gray);font-size:12px;margin:0;">نمونه پرسش: «پرونده‌های کلاهبرداری اینترنتی مشابه که منجر به محکومیت شده‌اند را نشان بده.» — برای جستجو Enter را بزنید.</p>
+    </div></div>
+    <div id="searchResults">${searchResultsHTML()}</div>`;
+}
+function searchResultsHTML(){
+  const c = searchAnchorCase;
+  return `<div class="panel"><div class="panel-head"><h3>نتایج مرتبط با: ${c.title}</h3></div>
+      <div class="panel-body">${c.similar.map(s=>`
+        <div class="sim-row"><div class="sim-top"><div><div style="font-weight:600;font-size:13.1px;">${s.title}</div><div style="color:var(--gray);font-size:11.5px;margin-top:2px;">نتیجه: ${s.outcome}</div></div>
+        <div class="sim-pct">${s.match.toLocaleString('fa-IR')}٪</div></div><div class="bar-track"><div class="bar-fill" style="width:${s.match}%"></div></div></div>`).join('')}</div></div>`;
+}
+async function runSemanticSearch(q){
+  searchQuery = q;
+  const box = document.getElementById('searchResults');
+  if(!SERVER.ok){
+    const match = findCaseByText(q);
+    if(match) searchAnchorCase = match;
+    box.innerHTML = searchResultsHTML();
+    return;
+  }
+  box.innerHTML = '<div class="panel"><div class="panel-body" style="color:var(--gray);padding:14px 4px;">در حال جستجوی معنایی…</div></div>';
+  try{
+    const j = await apiCall('/search', { method:'POST', body:{ query:q, top_k:8 } });
+    const hits = j.hits || [];
+    box.innerHTML = '<div class="panel"><div class="panel-head"><h3>' + hits.length.toLocaleString('fa-IR') + ' نتیجه — جستجوی برداری زنده</h3></div><div class="panel-body">' +
+      (hits.length ? hits.map(function(h){
+        const pct = Math.max(0, Math.min(100, Math.round((h.similarity||0)*100)));
+        return '<div class="sim-row"><div class="sim-top">' +
+          '<div><div style="font-weight:600;font-size:13.1px" dir="auto">' + escapeHtml(h.title || h.source) + '</div>' +
+          '<div style="color:var(--gray);font-size:11px;margin-top:3px;line-height:1.7" dir="auto">' + escapeHtml((h.text||'').slice(0,160)) + '…</div></div>' +
+          '<div class="sim-pct">' + pct.toLocaleString('fa-IR') + '٪</div></div>' +
+          '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div></div>';
+      }).join('') : '<div style="color:var(--gray);padding:10px 4px;">نتیجه‌ای یافت نشد.</div>') +
+      '</div></div>';
+  }catch(e){
+    box.innerHTML = '<div class="panel"><div class="panel-body" style="color:var(--stamp-red);padding:14px 4px;">خطا در جستجو: ' + escapeHtml(e.message) + '</div></div>';
+  }
+}
+
+/* ================= TAXONOMY PAGE ================= */
+function taxonomyPageHTML(){
+  return `
+    <div class="view-head"><div><div class="view-title">طبقه‌بندی و برچسب‌ها</div><div class="view-sub">تاکسونومی سلسله‌مراتبی و چندبعدی برچسب‌های آرشیو</div></div></div>
+    <div class="panel"><div class="panel-body" style="padding-top:16px;">
+      ${taxonomy.map(root=>`
+        <div class="tax-branch">
+          <div class="tax-root">${root.root}</div>
+          ${root.cats.map(cat=>`
+            <div class="tax-cat">
+              <div class="tax-cat-title">${cat.name}</div>
+              <div>${cat.leaves.map(leaf=>{
+                const cnt = cases.filter(c=>(c.labels||[]).includes(leaf)).length;
+                return `<span class="tax-leaf" onclick="labelFilter='${leaf}';goto('cases');">${leaf} <span class="cnt">${cnt.toLocaleString('fa-IR')}</span></span>`;
+              }).join('')}</div>
+            </div>`).join('')}
+        </div>`).join('')}
+      <div class="tax-candidate">🏷 برچسب پیشنهادی جدید (در انتظار تایید برای افزودن به تاکسونومی): «تخلفات نوظهور رایانه‌ای» — بر اساس ۲ پرونده مشابه اخیر شناسایی شده و تا تایید، به‌صورت خودکار به تاکسونومی اصلی اضافه نمی‌شود.</div>
+    </div></div>`;
+}
+
+/* ================= HUMAN REVIEW QUEUE ================= */
+function reviewPageHTML(){
+  const items = cases.filter(c=>c.needsReview);
+  return `
+    <div class="view-head"><div><div class="view-title">بازبینی انسانی</div><div class="view-sub">مواردی که سامانه به‌تنهایی نمی‌تواند با اطمینان کافی تصمیم بگیرد</div></div></div>
+    ${items.length===0? `<div class="panel"><div class="panel-body" style="padding:16px 4px;color:var(--gray);">در حال حاضر موردی در صف بازبینی نیست.</div></div>` : items.map(c=>`
+      <div class="review-card">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;">
+          <div><b style="font-size:14px;">${c.title}</b> ${caseIdHTML(c.number)}</div>
+          <span class="stamp review"><span class="dotc"></span>نیاز به بازبینی</span>
+        </div>
+        <p style="margin:10px 0 4px;color:var(--ink-soft);font-size:13px;"><b>موضوع ابهام:</b> ${c.reviewDetails? c.reviewDetails.uncertain : c.reviewReason}</p>
+        ${c.reviewDetails? `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+            ${c.reviewDetails.alternatives.map(a=>`<div class="alt-box"><b style="font-size:12.6px;">${a.label}</b><div class="src">منبع: ${a.src}</div></div>`).join('')}
+          </div>
+          <p style="margin:12px 0 0;font-size:12.6px;color:var(--gray);"><b>تصمیم موردنیاز:</b> ${c.reviewDetails.decision}</p>
+        `:''}
+        <div class="card-actions" style="margin-top:12px;">
+          <button class="btn-sm primary" onclick="this.closest('.review-card').querySelector('.confirmed-note').classList.add('show')">تایید گزینه اول و ثبت</button>
+          <button class="btn-sm" onclick="openCase('${c.id}','documents')">مشاهده اسناد پرونده</button>
+        </div>
+        <div class="confirmed-note">✓ انتخاب کاربر ثبت شد و تایم‌لاین پرونده به‌روزرسانی گردید.</div>
+      </div>`).join('')}`;
+}
+
+/* ================= ANALYTICS ================= */
+function analyticsPageHTML(){
+  const criminal=cases.filter(c=>c.type==='کیفری').length, civil=cases.filter(c=>c.type==='حقوقی').length;
+  const win=cases.filter(c=>c.status==='closed-win').length, loss=cases.filter(c=>c.status==='closed-loss').length;
+  return `
+    <div class="view-head"><div><div class="view-title">آمار و تحلیل</div><div class="view-sub">تحلیل توصیفی بر اساس داده‌های ساختاریافته آرشیو</div></div></div>
+    <div class="ledger-grid">
+      <div class="ledger-card"><div class="num">${criminal.toLocaleString('fa-IR')}</div><div class="lbl">پرونده کیفری</div></div>
+      <div class="ledger-card"><div class="num">${civil.toLocaleString('fa-IR')}</div><div class="lbl">پرونده حقوقی</div></div>
+      <div class="ledger-card accent-teal"><div class="num">${win.toLocaleString('fa-IR')}</div><div class="lbl">مختومه به نفع موکل</div></div>
+      <div class="ledger-card accent-red"><div class="num">${loss.toLocaleString('fa-IR')}</div><div class="lbl">مختومه به ضرر موکل</div></div>
+    </div>
+    <div class="panel"><div class="panel-head"><h3>یادداشت تحلیلی</h3></div>
+    <div class="panel-body" style="padding-top:10px;color:var(--ink-soft);font-size:13px;">
+      در میان پرونده‌های مختومه با موضوع مشابه «تخلیه ملک»، اکثریت به نفع موجر خاتمه یافته‌اند؛ این یافته توصیفی است و تضمین نتیجه در پرونده‌های آتی نیست.
+    </div></div>`;
+}
+
+/* ================= DOCUMENT PREVIEW ================= */
+function viewDocument(caseId, idx){
+  const c = cases.find(x=>x.id===caseId); if(!c) return;
+  const d = c.documents[idx]; if(!d) return;
+  document.getElementById('docModalTitle').textContent = d.name;
+  const needsReview = d.status.includes('نیاز');
+  document.getElementById('docModalBody').innerHTML = `
+    <div class="dropzone" style="padding:34px 20px;">📄 پیش‌نمایش محتوای سند در این نسخه نمایشی شبیه‌سازی نشده است؛ موارد زیر برگرفته از متادیتای بایگانی‌شده سند هستند.</div>
+    <table class="field-table">
+      <tr><td>نوع سند</td><td>${d.type}</td></tr>
+      <tr><td>پرونده مرتبط</td><td>${c.title} ${caseIdHTML(c.number)}</td></tr>
+      <tr><td>تاریخ بایگانی</td><td class="mono">${d.date}</td></tr>
+      <tr><td>وضعیت بازبینی</td><td><span class="stamp ${needsReview?'review':'closed-win'}"><span class="dotc"></span>${d.status}</span></td></tr>
+    </table>
+    ${needsReview? `<div class="disclaimer" style="margin-top:12px;">⚠ این سند نیاز به بازبینی انسانی دارد و محتوای استخراج‌شده از آن با اطمینان کامل تایید نشده است.</div>`:''}
+    <div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn ghost" onclick="closeOverlay('docOverlay')">بستن</button>
+      <button class="btn" onclick="closeOverlay('docOverlay');openCase('${c.id}','timeline')">مشاهده در تایم‌لاین</button>
+    </div>`;
+  openOverlay('docOverlay');
+}
+
+/* ================= CASE REPORT GENERATION ================= */
+function generateCaseReport(caseId){
+  const c = cases.find(x=>x.id===caseId); if(!c) return;
+  const last = c.timeline[c.timeline.length-1];
+  document.getElementById('reportModalBody').innerHTML = `
+    <div class="pipe-step active done" style="padding:4px 0;"><div class="pipe-icon" style="background:var(--teal);color:#fff;border-color:var(--teal);">✓</div><div><div class="pipe-label">گزارش بر اساس داده‌های بایگانی‌شده پرونده تولید شد</div><div class="pipe-sub">این گزارش خودکار است و جایگزین بررسی حقوقی متخصص نیست</div></div></div>
+    <div style="margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:16px 18px;">
+      <h4 style="margin:0 0 4px;">${c.title}</h4>
+      <div style="color:var(--gray);font-size:11.5px;margin-bottom:12px;">${c.court} — ${c.branch} · ${caseIdHTML(c.number)}</div>
+      <table class="field-table">
+        <tr><td>وضعیت</td><td>${c.statusLabel}</td></tr>
+        <tr><td>آخرین رویداد ثبت‌شده</td><td>${last.date} — ${last.title}</td></tr>
+        <tr><td>رویداد بعدی</td><td>${c.nextEvent? c.nextEvent.date+' — '+c.nextEvent.title : 'ثبت نشده'}</td></tr>
+        <tr><td>اقدامات در انتظار</td><td>${c.pending.length.toLocaleString('fa-IR')} مورد</td></tr>
+        <tr><td>اطمینان تطبیق سیستم</td><td>${confStamp(c.confidence)}</td></tr>
+      </table>
+    </div>
+    <div class="disclaimer" style="margin-top:14px;">⚠ این خروجی به‌صورت خودکار و صرفاً بر پایه داده‌های بایگانی‌شده تولید شده و پیش از استفاده رسمی نیازمند بازبینی وکیل مسئول پرونده است.</div>
+    <div style="margin-top:14px;display:flex;gap:10px;justify-content:flex-end;">
+      <button class="btn ghost" onclick="closeOverlay('reportOverlay')">بستن</button>
+      <button class="btn teal" onclick="this.closest('.modal-body').insertAdjacentHTML('beforeend','<div class=\\'confirmed-note show\\' style=\\'margin-top:10px;\\'>✓ گزارش برای بازبینی نهایی به وکیل پرونده ارسال شد.</div>')">ارسال برای بازبینی نهایی</button>
+    </div>`;
+  openOverlay('reportOverlay');
+}
+
+/* ================= NEW CASE MODAL ================= */
+function submitNewCase(){
+  const title = document.getElementById('ncTitle').value.trim() || 'پرونده جدید بدون عنوان';
+  const type = document.getElementById('ncType').value;
+  const subject = document.getElementById('ncSubject').value.trim();
+  const court = document.getElementById('ncCourt').value.trim() || '—';
+  const branch = document.getElementById('ncBranch').value.trim() || '—';
+  const partiesRaw = document.getElementById('ncParties').value.trim();
+  const parties = partiesRaw ? partiesRaw.split('\n').filter(Boolean) : [];
+  const newId = 'C-'+(cases.length+1);
+  cases.push({
+    id:newId, number:"—", title, type, subject, labels:[type], confidentiality:"عادی",
+    court, branch, status:"open", statusLabel:"در جریان رسیدگی", priority:"normal",
+    parties, lawyer:"فاطمه رضایی", nextEvent:null, confidence:0.3,
+    documents:[], timeline:[{date:"امروز", title:"ایجاد پرونده", desc:"پرونده به‌صورت دستی ایجاد شد.", src:"—", pending:false}],
+    financial:{claimed:"—",awarded:"—",fee:"—",received:"—"}, similar:[], pending:["تکمیل شماره پرونده پس از ثبت رسمی"],
+  });
+  closeOverlay('newCaseOverlay');
+  goto('cases');
+}
+
+/* ================= AGENT (HOME) VIEW ================= */
+let chatLog = [];
+let speakOn = true, voices = [];
+if('speechSynthesis' in window){ speechSynthesis.onvoiceschanged=()=>{voices=speechSynthesis.getVoices();}; voices=speechSynthesis.getVoices(); }
+
+function agentShellHTML(){
+  return `
+    <div class="agent-wrap">
+      <div class="agent-header">
+        <div class="ah-left">
+          <button class="icon-btn" onclick="document.getElementById('sidebar').classList.toggle('collapsed')">☰</button>
+          <div class="ah-avatar">آ<span class="ah-status-dot" id="statusDot"></span></div>
+          <div><div class="ah-name">دستیار پرونده</div><div class="ah-state" id="ahState">آماده — با تایپ یا صدا بپرسید</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span class="tb-access" data-server-badge style="display:flex;align-items:center;gap:5px;white-space:nowrap;"></span>
+          <button class="icon-btn ${speakOn?'on':''}" id="speakToggle" onclick="toggleSpeak()">${speakOn?'🔊':'🔇'}</button>
+          <button class="icon-btn" onclick="openServerSettings()" title="اتصال به سرور">⚙</button>
+          <button class="icon-btn" onclick="attachDemo()">📎</button>
+        </div>
+      </div>
+      <div class="chat-scroll" id="chatScroll"><div class="chat-inner" id="chatInner"></div></div>
+      <div class="suggestions">
+        <div class="chipbtn" onclick="askDirect('پرونده‌های در جریان رو دسته‌بندی کن')">دسته‌بندی پرونده‌های در جریان</div>
+        <div class="chipbtn" onclick="askDirect('رویدادها و مهلت‌های پیش رو چیه؟')">رویدادهای پیش رو</div>
+        <div class="chipbtn" onclick="askDirect('پرونده‌های مشابه کلاهبرداری اینترنتی رو نشونم بده')">پرونده‌های مشابه</div>
+        <div class="chipbtn" onclick="askDirect('چه پرونده‌هایی نیاز به بازبینی انسانی دارن؟')">صف بازبینی انسانی</div>
+        <div class="chipbtn" onclick="askDirect('برای پرونده خیانت در امانت، بازپرس گفت مهلت لایحه تا ۱۴۰۳/۰۷/۰۵ تمدید شد')">مثال: ثبت اطلاعات با گفتار</div>
+      </div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <button class="composer-btn mic" id="micBtn" onclick="toggleMic()">🎙️</button>
+          <textarea id="inputBox" rows="1" placeholder="پیام بنویسید یا روی میکروفون بزنید و صحبت کنید…"></textarea>
+          <button class="composer-btn send" onclick="handleSend()">➤</button>
+        </div>
+        <div class="hint" id="hintText">می‌توانید همچنین از نوار کناری به داشبورد، فهرست پرونده‌ها، رویدادها، طبقه‌بندی، بازبینی انسانی و آمار دسترسی مستقیم داشته باشید.</div>
+      </div>
+    </div>`;
+}
+
+function mountAgent(){
+  renderChatLog();
+  if(chatLog.length===0){
+    addAgentMsg({
+      text:'سلام! من دستیار پرونده هستم. می‌توانید پرونده‌ها را برایم بایگانی کنید، بپرسید چه رویدادهایی پیش رو دارید، از من بخواهید پرونده‌ها را دسته‌بندی کنید، یا وضعیت موارد نیازمند بازبینی انسانی را بپرسید — با تایپ یا با صدا. برای مرور کامل آرشیو هم می‌توانید از نوار کناری استفاده کنید.',
+      speech:'سلام، من دستیار پرونده هستم. می‌توانید با من صحبت کنید یا تایپ کنید.'
+    });
+  }
+  const inputBox = document.getElementById('inputBox');
+  inputBox.addEventListener('input', ()=>{ inputBox.style.height='auto'; inputBox.style.height=Math.min(inputBox.scrollHeight,110)+'px'; });
+  inputBox.addEventListener('keydown', (e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); handleSend(); } });
+  initSpeech();
+}
+function renderChatLog(){
+  const inner = document.getElementById('chatInner'); if(!inner) return;
+  inner.innerHTML = chatLog.map(m=>{
+    if(m.who==='user') return `<div class="msg-row user"><div class="bubble">${escapeHtml(m.text)}</div></div>`;
+    let html = `<div class="agent-tag"><span>دستیار پرونده</span><div class="ah-avatar">آ</div></div>`;
+    if(m.text) html += `<div>${m.text}</div>`;
+    if(m.cardHtml) html += m.cardHtml;
+    return `<div class="msg-row agent"><div class="bubble ${m.cardHtml?'has-card':''}">${html}</div></div>`;
+  }).join('');
+  const sc = document.getElementById('chatScroll'); if(sc) sc.scrollTop = sc.scrollHeight;
+}
+function addUserMsg(text){ chatLog.push({who:'user', text}); renderChatLog(); }
+function addAgentMsg({text, cardHtml, speech}){
+  chatLog.push({who:'agent', text, cardHtml});
+  renderChatLog();
+  if(speakOn && (speech||text)) speak(speech||text);
+}
+let typingActive=false;
+function showTyping(){
+  typingActive=true;
+  const inner=document.getElementById('chatInner'); if(!inner) return;
+  const row=document.createElement('div'); row.className='msg-row agent'; row.id='typingRow';
+  row.innerHTML=`<div class="bubble"><div class="typing"><i></i><i></i><i></i></div></div>`;
+  inner.appendChild(row);
+  const sc=document.getElementById('chatScroll'); if(sc) sc.scrollTop=sc.scrollHeight;
+}
+function hideTyping(){ const t=document.getElementById('typingRow'); if(t) t.remove(); }
+
+function speak(text){
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const clean = text.replace(/<[^>]+>/g,' ');
+  const u = new SpeechSynthesisUtterance(clean);
+  const faVoice = voices.find(v=>v.lang && v.lang.toLowerCase().startsWith('fa'));
+  if(faVoice) u.voice=faVoice;
+  u.lang = faVoice? faVoice.lang : 'fa-IR'; u.rate=1.0;
+  setStatus('busy','در حال پاسخ صوتی…');
+  u.onend=()=>setStatus('live','آماده — با تایپ یا صدا بپرسید');
+  speechSynthesis.speak(u);
+}
+function toggleSpeak(){
+  speakOn=!speakOn;
+  const b=document.getElementById('speakToggle');
+  if(b){ b.classList.toggle('on',speakOn); b.textContent=speakOn?'🔊':'🔇'; }
+  if(!speakOn) speechSynthesis.cancel();
+}
+function setStatus(kind,text){
+  const dot=document.getElementById('statusDot'), st=document.getElementById('ahState');
+  if(dot) dot.className='ah-status-dot '+(kind||'');
+  if(st) st.textContent=text;
+}
+
+/* ---- cards (dashboard-style widgets rendered inline in chat) ---- */
+function categoryCard(filterFn, label){
+  const list=cases.filter(filterFn);
+  const byType={"کیفری":0,"حقوقی":0}, byStatus={"open":0,"closed-win":0,"closed-loss":0};
+  list.forEach(c=>{byType[c.type]=(byType[c.type]||0)+1; byStatus[c.status]=(byStatus[c.status]||0)+1;});
+  const total=list.length||1;
+  const bar=(l,v,col)=>`<div class="cat-bar-row"><div class="cat-bar-top"><span>${l}</span><b class="mono">${v.toLocaleString('fa-IR')}</b></div><div class="bar-track"><div class="bar-fill" style="width:${(v/total)*100}%;background:${col}"></div></div></div>`;
+  let html=`<div class="card-title">${label} <span class="mono" style="font-weight:500;color:var(--gray);font-size:10.6px;">${list.length.toLocaleString('fa-IR')} پرونده</span></div>`;
+  html+=bar('کیفری', byType["کیفری"]||0, 'var(--stamp-red)') + bar('حقوقی', byType["حقوقی"]||0, 'var(--teal)');
+  html+=`<div style="margin-top:8px;"></div>`;
+  html+=bar('در جریان', byStatus["open"]||0, 'var(--teal)') + bar('مختومه (موفق)', byStatus["closed-win"]||0, 'var(--teal)') + bar('مختومه (ناموفق)', byStatus["closed-loss"]||0, 'var(--gray)');
+  html+=`<div style="margin-top:10px;">`+list.map(c=>`<div class="mini-row" style="cursor:pointer;" onclick="goto('case-detail');openCase('${c.id}')"><div>${caseIdHTML(c.number)}<div class="t" style="margin-top:4px;">${c.title}</div></div>${stampHTML(c)}</div>`).join('')+`</div>`;
+  return html;
+}
+function eventsCard(){
+  const upcoming=cases.filter(c=>c.nextEvent).sort((a,b)=>a.nextEvent.date.localeCompare(b.nextEvent.date));
+  let html=`<div class="card-title">رویدادها و مهلت‌های پیش رو</div>`;
+  html+=upcoming.map(c=>`<div class="mini-row"><div><div class="t">${c.nextEvent.title}</div><div class="s">${c.title}</div></div><div style="text-align:left;"><div class="mono" style="font-size:11.8px;">${c.nextEvent.date}</div>${stampHTML(c)}</div></div>`).join('');
+  html+=`<div class="card-actions"><button class="btn-sm" onclick="goto('events')">مشاهده همه رویدادها</button></div>`;
+  return html;
+}
+function similarCard(c){
+  let html=`<div class="card-title">پرونده‌های مشابه: ${c.title}</div><div style="font-size:11px;color:var(--gray);margin-bottom:9px;">فهرست تاریخی است، نه پیش‌بینی نتیجه پرونده جاری.</div>`;
+  html+=c.similar.map(s=>`<div class="cat-bar-row"><div class="cat-bar-top"><span>${s.title}</span><b class="mono">${s.match.toLocaleString('fa-IR')}٪</b></div><div class="bar-track"><div class="bar-fill" style="width:${s.match}%"></div></div><div class="s" style="margin-top:4px;">نتیجه: ${s.outcome}</div></div>`).join('');
+  return html;
+}
+function summaryCard(c){
+  return `<div class="card-title">${c.title} ${stampHTML(c)}</div><div>${caseIdHTML(c.number)}</div>
+    <table class="field-table">
+      <tr><td>نوع پرونده</td><td>${c.type}</td></tr>
+      <tr><td>دادگاه / شعبه</td><td>${c.court} — ${c.branch}</td></tr>
+      <tr><td>رویداد بعدی</td><td>${c.nextEvent? c.nextEvent.date+' — '+c.nextEvent.title : '—'}</td></tr>
+      <tr><td>اطمینان تطبیق سیستم</td><td>${confStamp(c.confidence)}</td></tr>
+    </table>
+    <div class="card-actions"><button class="btn-sm" onclick="goto('case-detail');openCase('${c.id}')">مشاهده پرونده کامل</button></div>`;
+}
+function reviewQueueCard(){
+  const items=cases.filter(c=>c.needsReview);
+  if(items.length===0) return `<div class="card-title">صف بازبینی انسانی</div><div style="color:var(--gray);font-size:12.5px;">موردی در انتظار بازبینی نیست.</div>`;
+  let html=`<div class="card-title">صف بازبینی انسانی <span class="mono" style="font-size:10.6px;color:var(--gray);">${items.length.toLocaleString('fa-IR')} مورد</span></div>`;
+  html+=items.map(c=>`<div class="mini-row"><div><div class="t">${c.title}</div><div class="s">${c.reviewReason}</div></div>${stampHTML(c)}</div>`).join('');
+  html+=`<div class="card-actions"><button class="btn-sm" onclick="goto('review')">باز کردن صف کامل بازبینی</button></div>`;
+  return html;
+}
+let captureCounter=0;
+function captureCard(rawText, matchedCase, dateFound){
+  const noteId='note-'+(++captureCounter);
+  return `<div class="card-title">اطلاعات جدید شناسایی شد</div>
+    <table class="field-table">
+      <tr><td>پرونده تشخیص داده‌شده</td><td>${matchedCase? matchedCase.title+' '+caseIdHTML(matchedCase.number) : '<span style="color:var(--amber);">نامشخص — نیاز به انتخاب دستی</span>'}</td></tr>
+      <tr><td>متن دیکته‌شده</td><td>${escapeHtml(rawText)}</td></tr>
+      <tr><td>تاریخ / مهلت شناسایی‌شده</td><td>${dateFound? '<span class="mono">'+dateFound+'</span>':'یافت نشد'}</td></tr>
+      <tr><td>اطمینان استخراج</td><td>${confStamp(matchedCase?0.8:0.4)}</td></tr>
+    </table>
+    <div class="card-actions">
+      <button class="btn-sm primary" onclick="confirmCapture('${noteId}','${matchedCase?matchedCase.id:''}')">تایید و ثبت در پرونده</button>
+      <button class="btn-sm" onclick="goto('cases')">انتخاب دستی پرونده</button>
+    </div>
+    <div class="confirmed-note" id="${noteId}">✓ در پرونده ثبت شد و به تایم‌لاین اضافه گردید.</div>`;
+}
+window.confirmCapture=function(noteId, caseId){
+  const note=document.getElementById(noteId); if(note) note.classList.add('show');
+  if(caseId){ const c=cases.find(x=>x.id===caseId); if(c) c.timeline.push({date:'ثبت‌شده اکنون', title:'یادداشت صوتی کاربر', desc:'', src:'—', pending:false}); }
+};
+
+/* ---- intent handling ---- */
+function findCaseByText(text){
+  return cases.find(c=>text.includes(c.title.split(' ')[0])) || cases.find(c=>c.title.split(' ').some(w=>w.length>3 && text.includes(w)));
+}
+function findDate(text){
+  const m=text.match(/[۰-۹0-9]{4}\/[۰-۹0-9]{1,2}\/[۰-۹0-9]{1,2}/); if(m) return m[0];
+  const rel=text.match(/(ده روز دیگر|یک هفته دیگر|دو هفته دیگر|فردا|پس‌فردا)/); return rel? rel[0]:null;
+}
+function stripTags(s){ return String(s||'').replace(/<[^>]+>/g,' '); }
+function liveAnswerHtml(ans, n, model, ms){
+  const cites = escapeHtml(ans||'').replace(/\[(\d+)\]/g,'<b style="color:var(--teal)">[$1]</b>');
+  return '<div style="line-height:1.9;white-space:pre-wrap" dir="auto">' + cites + '</div>' +
+    '<div style="margin-top:8px;font-size:10.8px;color:var(--gray)">' + (n||0).toLocaleString('fa-IR') + ' گزیده بازیابی شد' +
+    (model ? ' · ' + escapeHtml(model) : '') + (ms ? ' · ' + (ms/1000).toFixed(1) + ' ثانیه' : '') + '</div>';
+}
+function liveStatsCard(s){
+  s = s || {};
+  const mini = (t, rows) => (rows && rows.length)
+    ? '<div style="margin-top:9px"><div class="s" style="font-weight:700;color:var(--ink)">' + t + '</div>' +
+      rows.slice(0,6).map(r => '<div class="mini-row"><div class="t">' + escapeHtml(r.name) + '</div><b class="mono">' + (r.count||0).toLocaleString('fa-IR') + '</b></div>').join('') + '</div>'
+    : '';
+  return '<div class="card-title">آمار آرشیو</div>' +
+    '<table class="field-table"><tr><td>اسناد</td><td class="mono">' + (s.documents||0).toLocaleString('fa-IR') + '</td></tr>' +
+    '<tr><td>قطعات نمایه‌شده</td><td class="mono">' + (s.chunks||0).toLocaleString('fa-IR') + '</td></tr>' +
+    '<tr><td>رکورد ساختاریافته</td><td class="mono">' + (s.entries||0).toLocaleString('fa-IR') + '</td></tr></table>' +
+    mini('وکلا', s.lawyers) + mini('موضوعات', s.topics) + mini('اشخاص', s.people);
+}
+function liveDraftCard(j){
+  const d = j.draft || {}, ent = d.entities || {};
+  const row = (k, v) => v ? '<tr><td>' + k + '</td><td dir="auto">' + escapeHtml(v) + '</td></tr>' : '';
+  const parties = (d.parties||[]).map(p => escapeHtml((p.name||'') + ' — ' + (p.role||''))).join('<br>');
+  const reps = (d.representation||[]).map(r => escapeHtml((r.lawyer||'') + ' ← ' + (r.client||''))).join('<br>');
+  const id = 'd' + (++captureCounter);
+  window['_draft_' + id] = j;
+  return '<div class="card-title">پیش‌نویس آرشیو</div>' +
+    '<table class="field-table">' + row('عنوان', d.title) + row('خلاصه', d.summary) +
+    (parties ? '<tr><td>طرفین</td><td>' + parties + '</td></tr>' : '') +
+    (reps ? '<tr><td>وکالت (وکیل ← موکل)</td><td>' + reps + '</td></tr>' : '') +
+    row('شماره پرونده', ent.case_number) + row('دادگاه', ent.court) + row('موضوع', ent.topic) + '</table>' +
+    '<div class="form-row" style="margin-top:10px"><label>شناسه منبع (کلید یکتا)</label>' +
+    '<input id="src-' + id + '" placeholder="مثال: jalase-1402-09-15" dir="ltr" style="width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-family:inherit"></div>' +
+    '<div class="card-actions"><button class="btn-sm primary" onclick="commitDraft(\'' + id + '\')">تایید و ذخیره در آرشیو</button></div>' +
+    '<div class="confirmed-note" id="ok-' + id + '">✓ در آرشیو ذخیره شد و برای جستجو نمایه شد.</div>';
+}
+window.commitDraft = async function(id){
+  const j = window['_draft_' + id]; if(!j) return;
+  const el = document.getElementById('src-' + id);
+  const source = el && el.value.trim();
+  if(!source){ if(el){ el.style.borderColor = 'var(--stamp-red)'; el.focus(); } return; }
+  try{
+    await apiCall('/assistant/commit', { method:'POST', body:{ draft:j.draft, raw_text:j.raw_text, source } });
+    const ok = document.getElementById('ok-' + id); if(ok) ok.classList.add('show');
+    refreshServer();
+  }catch(e){ alert('خطا در ذخیره: ' + e.message); }
+};
+
+async function handleQuery(text){
+  if(!SERVER.ok) return handleQueryDemo(text);
+  showTyping(); setStatus('busy','در حال بررسی آرشیو…');
+  try{
+    const body = { text }; if(API.model) body.model = API.model;
+    const j = await apiCall('/assistant', { method:'POST', body });
+    hideTyping();
+    if(j.intent === 'query'){
+      addAgentMsg({ text: liveAnswerHtml(j.answer, (j.contexts||[]).length, j.model, j.latency_ms), speech: stripTags(j.answer).slice(0,300) });
+    } else if(j.intent === 'analytics'){
+      addAgentMsg({ text: j.summary ? escapeHtml(j.summary) : 'آمار آرشیو:', cardHtml: liveStatsCard(j.stats), speech: stripTags(j.summary || 'آمار آرشیو آماده است') });
+    } else {
+      addAgentMsg({ text: 'این پیش‌نویس از گفته شما استخراج شد — پیش از ثبت بررسی کنید:', cardHtml: liveDraftCard(j), speech: 'یک پیش‌نویس آرشیو آماده شد. لطفاً بررسی و تایید کنید.' });
+    }
+    setStatus('live','آماده — با تایپ یا صدا بپرسید');
+  }catch(e){
+    hideTyping();
+    addAgentMsg({ text: '⚠ خطا در ارتباط با سرور: ' + escapeHtml(e.message), speech: 'خطا در ارتباط با سرور رخ داد.' });
+    setStatus('live','آماده — با تایپ یا صدا بپرسید');
+  }
+}
+function handleQueryDemo(text){
+  showTyping(); setStatus('busy','در حال بررسی پرونده‌ها…');
+  setTimeout(()=>{
+    hideTyping();
+    const t=text.trim(); let handled=false;
+
+    if(/دسته‌?بندی/.test(t)){
+      handled=true;
+      if(/کیفری/.test(t)) addAgentMsg({text:'دسته‌بندی پرونده‌های کیفری آماده شد:', cardHtml:categoryCard(c=>c.type==='کیفری','پرونده‌های کیفری'), speech:'دسته‌بندی پرونده‌های کیفری آماده است.'});
+      else if(/حقوقی/.test(t)) addAgentMsg({text:'دسته‌بندی پرونده‌های حقوقی آماده شد:', cardHtml:categoryCard(c=>c.type==='حقوقی','پرونده‌های حقوقی'), speech:'دسته‌بندی پرونده‌های حقوقی آماده است.'});
+      else if(/جریان|باز/.test(t)) addAgentMsg({text:'دسته‌بندی پرونده‌های در جریان رسیدگی:', cardHtml:categoryCard(c=>c.status==='open','پرونده‌های در جریان'), speech:'دسته‌بندی پرونده‌های در جریان رسیدگی آماده است.'});
+      else addAgentMsg({text:'دسته‌بندی کلی تمام پرونده‌های آرشیو:', cardHtml:categoryCard(()=>true,'همه پرونده‌ها'), speech:'دسته‌بندی کلی تمام پرونده‌ها را نمایش می‌دهم.'});
+    }
+    if(!handled && /(بازبینی|ابهام|نامشخص)/.test(t)){ handled=true; addAgentMsg({text:'وضعیت صف بازبینی انسانی:', cardHtml:reviewQueueCard(), speech:'وضعیت صف بازبینی انسانی را نمایش می‌دهم.'}); }
+    if(!handled && /(رویداد|جلسه|مهلت|پیش رو|این هفته|نزدیک)/.test(t)){ handled=true; addAgentMsg({text:'این رویدادها و مهلت‌های نزدیک ثبت شده‌اند:', cardHtml:eventsCard(), speech:'رویدادهای نزدیک را در کارت زیر می‌بینید.'}); }
+    if(!handled && /مشابه/.test(t)){ handled=true; const c=findCaseByText(t)||cases[0]; addAgentMsg({text:`پرونده‌های مشابه «${c.title}» را یافتم:`, cardHtml:similarCard(c), speech:'پرونده‌های مشابه تاریخی را نمایش می‌دهم؛ این فهرست پیش‌بینی نتیجه پرونده جاری نیست.'}); }
+    if(!handled && /خلاصه/.test(t)){ const c=findCaseByText(t); if(c){ handled=true; addAgentMsg({text:'خلاصه وضعیت این پرونده:', cardHtml:summaryCard(c), speech:'وضعیت پرونده '+c.title+' را خلاصه کردم.'}); } }
+    if(!handled){
+      const dateFound=findDate(t);
+      const looksLikeDictation=/برای پرونده|ثبت کن|یادداشت کن|تمدید شد|اعلام کرد|گفت/.test(t);
+      if(looksLikeDictation || dateFound){
+        handled=true; const c=findCaseByText(t);
+        addAgentMsg({text:'اطلاعات شما دریافت و استخراج شد:', cardHtml:captureCard(t,c,dateFound), speech: c? 'اطلاعات جدید برای پرونده '+c.title+' شناسایی شد. لطفاً پیش از ثبت نهایی تایید کنید.' : 'اطلاعات جدیدی دریافت شد اما پرونده مرتبط شناسایی نشد؛ لطفاً به‌صورت دستی انتخاب کنید.'});
+      }
+    }
+    if(!handled){
+      addAgentMsg({text:'می‌توانم پرونده‌ها را دسته‌بندی کنم، رویدادهای پیش رو را نشان دهم، پرونده‌های مشابه را پیدا کنم، وضعیت صف بازبینی انسانی را بگویم، یا اطلاعات جدیدی که با صدا بگویید را در پرونده مربوطه ثبت کنم.', speech:'می‌توانم پرونده‌ها را دسته‌بندی کنم، رویدادهای پیش رو را نشان دهم یا اطلاعات جدید شما را ثبت کنم.'});
+    }
+    setStatus('live','آماده — با تایپ یا صدا بپرسید');
+  }, 500);
+}
+function handleSend(){
+  const inputBox=document.getElementById('inputBox'); const text=inputBox.value.trim(); if(!text) return;
+  addUserMsg(text); inputBox.value=''; inputBox.style.height='auto'; handleQuery(text);
+}
+window.askDirect=function(text){ addUserMsg(text); handleQuery(text); };
+function attachDemo(){
+  addUserMsg('📎 قرارداد_پیمانکاری_ضمیمه۲.pdf');
+  showTyping(); setStatus('busy','در حال پردازش سند…');
+  setTimeout(()=>{
+    hideTyping(); const c=cases[1];
+    addAgentMsg({text:'سند دریافت‌شده پردازش شد:', cardHtml:`<div class="card-title">نتیجه تطبیق سند</div>
+      <table class="field-table">
+        <tr><td>نوع سند شناسایی‌شده</td><td>ضمیمه قرارداد پیمانکاری</td></tr>
+        <tr><td>پرونده تطبیق‌یافته</td><td>${c.title} ${caseIdHTML(c.number)}</td></tr>
+        <tr><td>اطمینان تطبیق</td><td>${confStamp(0.95)}</td></tr>
+      </table><div class="confirmed-note show">✓ سند به تایم‌لاین پرونده اضافه شد.</div>`,
+      speech:'سند را بررسی کردم و با اطمینان بالا به پرونده '+c.title+' متصل کردم.'});
+    setStatus('live','آماده — با تایپ یا صدا بپرسید');
+  },900);
+}
+
+/* ---- speech-to-text ---- */
+let recognition=null, listening=false;
+function initSpeech(){
+  const micBtn=document.getElementById('micBtn'); if(!micBtn) return;
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ const hint=document.getElementById('hintText'); if(hint) hint.textContent='تشخیص گفتار در این مرورگر پشتیبانی نمی‌شود — از ورودی متنی استفاده کنید.'; return; }
+  recognition=new SR(); recognition.lang='fa-IR'; recognition.interimResults=true; recognition.continuous=false;
+  recognition.onstart=()=>{ listening=true; micBtn.classList.add('listening'); micBtn.innerHTML='<div class="wave"><i></i><i></i><i></i><i></i><i></i></div>'; setStatus('busy','در حال گوش دادن…'); };
+  recognition.onresult=(e)=>{
+    let interim='', final=''; const inputBox=document.getElementById('inputBox');
+    for(let i=e.resultIndex;i<e.results.length;i++){ if(e.results[i].isFinal) final+=e.results[i][0].transcript; else interim+=e.results[i][0].transcript; }
+    if(inputBox) inputBox.value = final||interim;
+    if(final) recognition.stop();
+  };
+  recognition.onerror=()=>{ stopListeningUI(); setStatus('live','متوجه نشدم؛ دوباره تلاش کنید یا تایپ کنید.'); };
+  recognition.onend=()=>{ stopListeningUI(); const inputBox=document.getElementById('inputBox'); if(inputBox && inputBox.value.trim()) handleSend(); else setStatus('live','آماده — با تایپ یا صدا بپرسید'); };
+}
+function stopListeningUI(){ listening=false; const micBtn=document.getElementById('micBtn'); if(micBtn){ micBtn.classList.remove('listening'); micBtn.textContent='🎙️'; } }
+function toggleMic(){ if(!recognition) return; if(listening) recognition.stop(); else { try{ recognition.start(); }catch(e){} } }
+
+/* ---- global click to close bell panel ---- */
+document.addEventListener('click', function(e){
+  const panel=document.getElementById('bellPanel'); if(!panel) return;
+  if(!panel.contains(e.target) && !e.target.closest('.icon-btn')) panel.classList.remove('show');
+});
+
+/* ================= INIT ================= */
+render();
+refreshServer();
+</script>
+</body>
+</html>

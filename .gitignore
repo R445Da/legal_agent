@@ -1,0 +1,31 @@
+# Secrets — .env holds GROQ_API_KEY, OPENAI_API_KEY and API_TOKEN.
+# NOTE: .env was tracked before this file existed; `git rm --cached .env`
+# untracks it (the file stays on disk).
+.env
+.env.*
+!.env.example
+!.env.docker.example
+
+# Embedded PostgreSQL cluster (pgserver writes here; churns on every request)
+.pgdata/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Model / tool caches
+.fastembed_cache/
+.streamlit/secrets.toml
+
+# Local agent/skill tooling
+.agents/
+.claude/skills/
+
+# Raw corpora — ingest INPUT only, 318 MB, and the same dataset twice.
+# docker/seed.dump (15 MB) holds the ingested result, which is what the app
+# actually needs. Re-download these from HuggingFace if you ever re-ingest.
+data/external/
+
+# Runtime logs from scripts/up.sh, scripts/serve.sh
+*.log

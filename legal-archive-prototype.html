@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>سامانه آرشیو و هوش مصنوعی پرونده‌ها</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#1C2B39;
+  --ink-soft:#3B4E5E;
+  --paper:#EFF1EC;
+  --paper-raised:#FFFFFF;
+  --paper-line:#D8DCD3;
+  --stamp-red:#9A2E2E;
+  --stamp-red-soft:#F4E4E2;
+  --ledger-teal:#1F6B5C;
+  --ledger-teal-soft:#E1EEE9;
+  --amber:#B4750F;
+  --amber-soft:#F6E9D2;
+  --gray:#6B7280;
+  --gray-soft:#E7E9E4;
+  --radius:10px;
+  --shadow:0 1px 2px rgba(28,43,57,.06), 0 6px 20px -8px rgba(28,43,57,.12);
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  font-family:'Vazirmatn',sans-serif;
+  background:var(--paper);
+  color:var(--ink);
+  font-size:14.5px;
+  line-height:1.7;
+}
+.mono{font-family:'IBM Plex Mono','Vazirmatn',monospace;}
+button{font-family:inherit;cursor:pointer;}
+::selection{background:var(--stamp-red-soft);}
+
+/* ---------- Shell ---------- */
+.app-shell{display:flex;min-height:100vh;}
+.sidebar{
+  width:236px;flex:none;
+  background:var(--ink);
+  color:#EDEFEA;
+  display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;
+}
+.brand{
+  padding:22px 20px 16px;
+  border-bottom:1px solid rgba(255,255,255,.08);
+}
+.brand-mark{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:34px;height:34px;border:1.5px dashed rgba(237,239,234,.55);
+  border-radius:50%;font-family:'IBM Plex Mono';font-weight:600;font-size:13px;
+  margin-left:10px;
+}
+.brand-row{display:flex;align-items:center;}
+.brand-title{font-weight:800;font-size:15.5px;letter-spacing:.2px;}
+.brand-sub{font-size:11.5px;color:#9FB0A6;margin-top:2px;font-family:'IBM Plex Mono';letter-spacing:.4px;}
+
+.nav{padding:14px 12px;flex:1;}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;margin-bottom:4px;border-radius:8px;
+  color:#C9D0C5;font-size:13.8px;font-weight:500;
+  border-inline-start:3px solid transparent;
+  transition:background .15s;
+}
+.nav-item .n{font-family:'IBM Plex Mono';font-size:11px;color:#7C8B80;width:16px;}
+.nav-item:hover{background:rgba(255,255,255,.05);color:#fff;cursor:pointer;}
+.nav-item.active{background:rgba(255,255,255,.08);color:#fff;border-inline-start-color:var(--amber);}
+.nav-section-label{
+  font-size:10.5px;color:#7C8B80;letter-spacing:.6px;
+  padding:14px 14px 6px;font-family:'IBM Plex Mono';
+}
+.sidebar-foot{
+  padding:14px 20px;border-top:1px solid rgba(255,255,255,.08);
+  font-size:12px;color:#8A9A8F;
+}
+
+.main{flex:1;min-width:0;}
+.topbar{
+  height:60px;background:var(--paper-raised);
+  border-bottom:1px solid var(--paper-line);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;position:sticky;top:0;z-index:5;
+}
+.search-box{
+  display:flex;align-items:center;gap:8px;
+  background:var(--paper);border:1px solid var(--paper-line);
+  border-radius:8px;padding:8px 14px;width:380px;color:var(--gray);
+}
+.search-box input{border:none;background:transparent;outline:none;flex:1;font-family:inherit;font-size:13.5px;color:var(--ink);}
+.top-right{display:flex;align-items:center;gap:18px;}
+.bell{position:relative;color:var(--ink-soft);font-size:17px;}
+.bell .dot{
+  position:absolute;top:-4px;insetInlineStart:-6px;background:var(--stamp-red);
+  color:#fff;font-size:9.5px;font-family:'IBM Plex Mono';border-radius:50%;
+  width:15px;height:15px;display:flex;align-items:center;justify-content:center;
+}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:13px;}
+.avatar{width:30px;height:30px;border-radius:50%;background:var(--ledger-teal-soft);color:var(--ledger-teal);
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12.5px;}
+
+.view{padding:26px 30px 60px;max-width:1180px;margin:0 auto;}
+.view-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;}
+.view-title{font-size:20px;font-weight:800;}
+.view-sub{color:var(--gray);font-size:13px;margin-top:3px;}
+
+.btn{
+  border:1px solid var(--ink);background:var(--ink);color:#fff;
+  padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600;
+}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--paper-line);}
+.btn.teal{background:var(--ledger-teal);border-color:var(--ledger-teal);}
+.btn:hover{opacity:.9;}
+
+/* ---------- Case ID digit boxes (signature element) ---------- */
+.case-id{display:inline-flex;gap:5px;direction:ltr;unicode-bidi:isolate;}
+.case-id .grp{display:inline-flex;gap:2px;}
+.case-id .d{
+  font-family:'IBM Plex Mono';font-weight:600;font-size:12px;
+  width:16px;height:19px;display:flex;align-items:center;justify-content:center;
+  border:1px solid var(--paper-line);border-radius:2px;background:#fff;color:var(--ink-soft);
+}
+.case-id.lg .d{width:20px;height:24px;font-size:14px;}
+
+/* ---------- Stamp badges ---------- */
+.stamp{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:4px 11px 4px 9px;border-radius:20px;font-size:11.5px;font-weight:700;
+  border:1.5px dashed currentColor;letter-spacing:.2px;
+}
+.stamp .dotc{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none;}
+.stamp.open{color:var(--ledger-teal);background:var(--ledger-teal-soft);}
+.stamp.closed-win{color:var(--ledger-teal);background:var(--ledger-teal-soft);}
+.stamp.closed-loss{color:var(--gray);background:var(--gray-soft);}
+.stamp.review{color:var(--amber);background:var(--amber-soft);}
+.stamp.urgent{color:var(--stamp-red);background:var(--stamp-red-soft);}
+
+/* ---------- Ledger stat cards ---------- */
+.ledger-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+.ledger-card{
+  background:var(--paper-raised);border:1px solid var(--paper-line);
+  border-top:3px dashed var(--paper-line);border-radius:var(--radius);
+  padding:16px 18px;box-shadow:var(--shadow);
+}
+.ledger-card .num{font-family:'IBM Plex Mono';font-size:26px;font-weight:600;line-height:1;}
+.ledger-card .lbl{color:var(--gray);font-size:12.5px;margin-top:8px;}
+.ledger-card.accent-red{border-top-color:var(--stamp-red);}
+.ledger-card.accent-red .num{color:var(--stamp-red);}
+.ledger-card.accent-teal{border-top-color:var(--ledger-teal);}
+.ledger-card.accent-teal .num{color:var(--ledger-teal);}
+.ledger-card.accent-amber{border-top-color:var(--amber);}
+.ledger-card.accent-amber .num{color:var(--amber);}
+
+/* ---------- Panels / tables ---------- */
+.panel{background:var(--paper-raised);border:1px solid var(--paper-line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:20px;}
+.panel-head{padding:15px 18px;border-bottom:1px solid var(--paper-line);display:flex;align-items:center;justify-content:space-between;}
+.panel-head h3{margin:0;font-size:14.5px;font-weight:700;}
+.panel-body{padding:6px 18px 14px;}
+
+table{width:100%;border-collapse:collapse;}
+th{
+  text-align:right;font-size:11px;color:var(--gray);font-weight:600;
+  padding:10px 8px;border-bottom:1px solid var(--paper-line);letter-spacing:.3px;
+}
+td{padding:12px 8px;border-bottom:1px solid #EEF0EA;font-size:13.3px;vertical-align:middle;}
+tr.row-hover:hover{background:var(--paper);cursor:pointer;}
+.case-title-cell{font-weight:700;}
+.case-sub{color:var(--gray);font-size:11.8px;margin-top:2px;font-weight:400;}
+
+.list-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid #EEF0EA;}
+.list-row:last-child{border-bottom:none;}
+
+/* ---------- Case detail ---------- */
+.case-cover{
+  background:var(--paper-raised);border:1px solid var(--paper-line);border-radius:var(--radius);
+  padding:20px 22px;box-shadow:var(--shadow);margin-bottom:0;
+}
+.case-cover-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
+.case-cover h2{margin:0 0 6px;font-size:19px;font-weight:800;}
+.case-meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px;color:var(--ink-soft);font-size:12.8px;}
+.case-meta b{color:var(--ink);font-weight:700;}
+
+.folder-tabs{display:flex;gap:2px;margin-top:16px;border-bottom:1px solid var(--paper-line);}
+.folder-tab{
+  padding:10px 18px;font-size:13px;font-weight:600;color:var(--gray);
+  border:1px solid transparent;border-bottom:none;border-radius:8px 8px 0 0;
+  position:relative;top:1px;
+}
+.folder-tab.active{color:var(--ink);background:var(--paper-raised);border-color:var(--paper-line);border-bottom:1px solid var(--paper-raised);}
+.tab-panel{background:var(--paper-raised);border:1px solid var(--paper-line);border-top:none;border-radius:0 0 var(--radius) var(--radius);padding:22px;box-shadow:var(--shadow);margin-bottom:24px;}
+
+/* timeline */
+.tl{position:relative;padding-inline-start:0;}
+.tl-item{display:flex;gap:14px;position:relative;padding-bottom:22px;}
+.tl-item:last-child{padding-bottom:0;}
+.tl-item::before{
+  content:"";position:absolute;top:22px;bottom:-4px;right:14.5px;width:1px;background:var(--paper-line);
+}
+.tl-item:last-child::before{display:none;}
+.tl-dot{
+  width:30px;height:30px;border-radius:50%;flex:none;
+  display:flex;align-items:center;justify-content:center;
+  border:2px solid var(--ledger-teal);color:var(--ledger-teal);background:var(--ledger-teal-soft);
+  font-size:13px;z-index:1;
+}
+.tl-item.pending .tl-dot{border-color:var(--amber);color:var(--amber);background:var(--amber-soft);}
+.tl-date{font-family:'IBM Plex Mono';font-size:11.5px;color:var(--gray);margin-bottom:2px;}
+.tl-title{font-weight:700;font-size:13.6px;}
+.tl-desc{color:var(--ink-soft);font-size:12.6px;margin-top:2px;}
+.tl-src{color:var(--gray);font-size:11px;margin-top:5px;}
+.tl-src span{border-bottom:1px dashed var(--paper-line);padding-bottom:1px;}
+
+/* documents */
+.doc-row{display:flex;align-items:center;gap:14px;padding:13px 4px;border-bottom:1px solid #EEF0EA;}
+.doc-row:last-child{border-bottom:none;}
+.doc-icon{
+  width:38px;height:38px;border-radius:6px;background:var(--paper);border:1px solid var(--paper-line);
+  display:flex;align-items:center;justify-content:center;font-family:'IBM Plex Mono';font-size:10.5px;font-weight:700;color:var(--ink-soft);flex:none;
+}
+.doc-name{font-weight:600;font-size:13.4px;}
+.doc-meta{color:var(--gray);font-size:11.6px;margin-top:2px;}
+.doc-right{margin-inline-start:auto;display:flex;align-items:center;gap:10px;}
+
+/* financial */
+.fin-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.fin-box{border:1px solid var(--paper-line);border-radius:8px;padding:14px 16px;background:var(--paper);}
+.fin-box .lbl{color:var(--gray);font-size:11.8px;}
+.fin-box .val{font-family:'IBM Plex Mono';font-size:17px;font-weight:600;margin-top:6px;}
+
+/* similar cases */
+.sim-row{padding:14px 4px;border-bottom:1px solid #EEF0EA;}
+.sim-row:last-child{border-bottom:none;}
+.sim-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.sim-bar-track{height:6px;border-radius:4px;background:var(--gray-soft);overflow:hidden;}
+.sim-bar-fill{height:100%;background:var(--ledger-teal);border-radius:4px;}
+.sim-pct{font-family:'IBM Plex Mono';font-weight:700;font-size:12.5px;}
+.disclaimer{
+  background:var(--amber-soft);color:#7A5305;border:1px dashed var(--amber);
+  border-radius:8px;padding:12px 14px;font-size:12.3px;margin-bottom:16px;
+}
+
+/* pending actions */
+.action-row{display:flex;align-items:flex-start;gap:12px;padding:12px 4px;border-bottom:1px solid #EEF0EA;}
+.chk{width:19px;height:19px;border:1.5px solid var(--paper-line);border-radius:5px;flex:none;margin-top:2px;}
+
+/* ingestion modal */
+.overlay{position:fixed;inset:0;background:rgba(28,43,57,.45);display:none;align-items:center;justify-content:center;z-index:50;}
+.overlay.show{display:flex;}
+.modal{background:#fff;border-radius:12px;width:560px;max-width:92vw;max-height:88vh;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+.modal-head{padding:18px 22px;border-bottom:1px solid var(--paper-line);display:flex;justify-content:space-between;align-items:center;}
+.modal-head h3{margin:0;font-size:15px;font-weight:800;}
+.modal-close{color:var(--gray);font-size:20px;line-height:1;}
+.modal-body{padding:20px 22px 24px;}
+.pipe-step{display:flex;align-items:center;gap:12px;padding:10px 0;opacity:.35;transition:opacity .3s;}
+.pipe-step.active{opacity:1;}
+.pipe-step.done .pipe-icon{background:var(--ledger-teal);color:#fff;border-color:var(--ledger-teal);}
+.pipe-icon{
+  width:26px;height:26px;border-radius:50%;border:2px solid var(--paper-line);
+  display:flex;align-items:center;justify-content:center;font-size:12px;flex:none;color:var(--paper-line);
+}
+.pipe-label{font-size:13.2px;font-weight:600;}
+.pipe-sub{font-size:11.3px;color:var(--gray);}
+.result-box{margin-top:16px;border:1px solid var(--paper-line);border-radius:8px;padding:14px 16px;background:var(--paper);display:none;}
+.result-box.show{display:block;}
+
+.dropzone{
+  border:1.5px dashed var(--paper-line);border-radius:10px;padding:26px;text-align:center;color:var(--gray);
+  font-size:12.8px;margin-bottom:6px;
+}
+
+@media (max-width:900px){
+  .ledger-grid{grid-template-columns:repeat(2,1fr);}
+  .fin-grid{grid-template-columns:1fr;}
+  .sidebar{width:76px;}
+  .brand-title,.brand-sub,.nav-item span.lbl,.nav-section-label,.sidebar-foot{display:none;}
+  .search-box{width:220px;}
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-row">
+        <span class="brand-mark">آ</span>
+        <div>
+          <div class="brand-title">آرشیو هوشمند پرونده</div>
+          <div class="brand-sub">CASE&nbsp;INTELLIGENCE</div>
+        </div>
+      </div>
+    </div>
+    <div class="nav">
+      <div class="nav-section-label">نمای کلی</div>
+      <div class="nav-item active" data-view="dashboard"><span class="n">۰۱</span><span class="lbl">داشبورد</span></div>
+      <div class="nav-item" data-view="cases"><span class="n">۰۲</span><span class="lbl">پرونده‌ها</span></div>
+      <div class="nav-item" data-view="events"><span class="n">۰۳</span><span class="lbl">رویدادها و مهلت‌ها</span></div>
+      <div class="nav-section-label">پردازش</div>
+      <div class="nav-item" data-view="ingest"><span class="n">۰۴</span><span class="lbl">دریافت و بایگانی سند</span></div>
+      <div class="nav-item" data-view="search"><span class="n">۰۵</span><span class="lbl">جستجوی معنایی و مشابه‌یاب</span></div>
+      <div class="nav-section-label">تحلیل</div>
+      <div class="nav-item" data-view="analytics"><span class="n">۰۶</span><span class="lbl">آمار و روند پرونده‌ها</span></div>
+    </div>
+    <div class="sidebar-foot">نسخه نمایشی · داده‌های فرضی</div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div class="search-box">
+        <span>⌕</span>
+        <input id="globalSearch" placeholder="جستجو در پرونده‌ها، اسناد و رویدادها…">
+      </div>
+      <div class="top-right">
+        <div class="bell">🔔<span class="dot">۵</span></div>
+        <div class="user-chip">
+          <div class="avatar">ف.ر</div>
+          <div>فاطمه رضایی<br><span style="color:var(--gray);font-size:11px;">وکیل پایه یک</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="viewRoot"></div>
+  </div>
+</div>
+
+<!-- INGEST MODAL -->
+<div class="overlay" id="ingestOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3>پردازش سند جدید</h3>
+      <div class="modal-close" onclick="closeIngest()">✕</div>
+    </div>
+    <div class="modal-body">
+      <div class="dropzone">📄 قرارداد_پیمانکاری_ضمیمه۲.pdf — ۴٫۲ مگابایت</div>
+      <div id="pipeSteps"></div>
+      <div class="result-box" id="pipeResult"></div>
+      <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn ghost" onclick="closeIngest()">بستن</button>
+        <button class="btn" id="pipeRunBtn" onclick="runPipeline()">شروع پردازش</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= SAMPLE DATA ================= */
+const cases = [
+  {
+    id:"C-1", number:"140200987650012",
+    title:"کلاهبرداری اینترنتی از طریق فروشگاه جعلی",
+    type:"کیفری", subject:"کلاهبرداری رایانه‌ای",
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۴",
+    status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: امیر توکلی","متهم: ناشناس (در حال شناسایی)"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۱۸", title:"جلسه بازپرسی دوم"},
+    confidence:0.91,
+    documents:[
+      {name:"شکایت اولیه.pdf", type:"شکایت", date:"۱۴۰۳/۰۵/۰۲", status:"تایید شده"},
+      {name:"گزارش پلیس فتا.pdf", type:"گزارش مرجع انتظامی", date:"۱۴۰۳/۰۵/۱۰", status:"تایید شده"},
+      {name:"صورت‌جلسه بازپرسی اول.pdf", type:"صورت‌جلسه", date:"۱۴۰۳/۰۶/۰۱", status:"نیاز به بازبینی"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۵/۰۲", title:"ثبت شکایت", desc:"شکایت شاکی در دادسرا ثبت شد.", src:"شکایت اولیه.pdf", pending:false},
+      {date:"۱۴۰۳/۰۵/۱۰", title:"ارجاع به پلیس فتا", desc:"پرونده جهت شناسایی فنی مرجع ارجاع شد.", src:"گزارش پلیس فتا.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۰۱", title:"اولین جلسه بازپرسی", desc:"اظهارات شاکی اخذ شد؛ مهلت ۱۵ روزه برای ارائه مستندات مالی تعیین گردید.", src:"صورت‌جلسه بازپرسی اول.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۱۸", title:"جلسه بازپرسی دوم", desc:"موعد بررسی مستندات شناسایی IP و حساب‌های بانکی.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۳۲۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۴۵٬۰۰۰٬۰۰۰ ریال", received:"۲۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"کلاهبرداری فروشگاه اینترنتی جعلی (شعبه ۲)", match:88, outcome:"محکومیت متهم", court:"دادسرای عمومی"},
+      {title:"کلاهبرداری از طریق درگاه پرداخت جعلی", match:81, outcome:"محکومیت متهم", court:"دادسرای ناحیه ۳"},
+      {title:"کلاهبرداری شبکه‌های اجتماعی", match:74, outcome:"قرار منع تعقیب (فقدان ادله)", court:"دادسرای عمومی"},
+    ],
+    pending:["ارائه استعلام حساب بانکی متهم","پیگیری پاسخ پلیس فتا از اپراتور اینترنت"],
+  },
+  {
+    id:"C-2", number:"140201123400089",
+    title:"مطالبه وجه قرارداد پیمانکاری ساختمانی",
+    type:"حقوقی", subject:"مطالبه وجه / قرارداد",
+    court:"دادگاه عمومی حقوقی تهران", branch:"شعبه ۱۲",
+    status:"open", statusLabel:"در جریان رسیدگی", priority:"normal",
+    parties:["خواهان: شرکت سازه پویا","خوانده: مهدی امینی"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۰۹", title:"جلسه رسیدگی"},
+    confidence:0.95,
+    documents:[
+      {name:"دادخواست.pdf", type:"دادخواست", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"قرارداد پیمانکاری.pdf", type:"قرارداد", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"صورت وضعیت شماره ۳.pdf", type:"سند مالی", date:"۱۴۰۳/۰۳/۱۴", status:"تایید شده"},
+      {name:"لایحه دفاعیه خوانده.pdf", type:"لایحه", date:"۱۴۰۳/۰۴/۲۰", status:"نیاز به بازبینی"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۳/۱۴", title:"ثبت دادخواست", desc:"مطالبه مبلغ صورت‌وضعیت‌های پرداخت‌نشده.", src:"دادخواست.pdf", pending:false},
+      {date:"۱۴۰۳/۰۴/۲۰", title:"دریافت لایحه دفاعیه", desc:"خوانده ادعای نقص در اجرای تعهدات پیمانکار را مطرح کرد.", src:"لایحه دفاعیه خوانده.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۰۹", title:"جلسه رسیدگی", desc:"استماع اظهارات طرفین و کارشناس فنی.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۱٬۸۵۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۹۰٬۰۰۰٬۰۰۰ ریال", received:"۹۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"مطالبه وجه قرارداد پیمانکاری مشابه (شعبه ۵)", match:83, outcome:"محکومیت خوانده به پرداخت بخشی از مبلغ", court:"دادگاه عمومی حقوقی"},
+      {title:"مطالبه صورت‌وضعیت پیمانکاری راه", match:69, outcome:"صلح و سازش", court:"شورای حل اختلاف"},
+    ],
+    pending:["ارجاع پرونده به کارشناس رسمی دادگستری","پیگیری ابلاغ به خوانده"],
+  },
+  {
+    id:"C-3", number:"140105234570021",
+    title:"تخلیه ملک تجاری به علت انقضای مدت اجاره",
+    type:"حقوقی", subject:"تخلیه / اجاره",
+    court:"شورای حل اختلاف", branch:"شعبه ۷",
+    status:"closed-win", statusLabel:"مختومه – به نفع موکل", priority:"normal",
+    parties:["خواهان: زهرا کریمی (موجر)","خوانده: فروشگاه البرز"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:null,
+    confidence:0.97,
+    documents:[
+      {name:"دادخواست تخلیه.pdf", type:"دادخواست", date:"۱۴۰۱/۰۲/۰۵", status:"تایید شده"},
+      {name:"قرارداد اجاره.pdf", type:"قرارداد", date:"۱۴۰۱/۰۲/۰۵", status:"تایید شده"},
+      {name:"دادنامه.pdf", type:"دادنامه", date:"۱۴۰۱/۰۵/۱۱", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۱/۰۲/۰۵", title:"ثبت دادخواست تخلیه", desc:"—", src:"دادخواست تخلیه.pdf", pending:false},
+      {date:"۱۴۰۱/۰۵/۱۱", title:"صدور دادنامه", desc:"حکم به تخلیه ملک و پرداخت اجرت‌المثل صادر شد.", src:"دادنامه.pdf", pending:false},
+    ],
+    financial:{claimed:"۴۵۰٬۰۰۰٬۰۰۰ ریال", awarded:"۴۱۰٬۰۰۰٬۰۰۰ ریال", fee:"۲۵٬۰۰۰٬۰۰۰ ریال", received:"۲۵٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"تخلیه مغازه انقضای اجاره (شعبه ۳)", match:79, outcome:"حکم به تخلیه", court:"شورای حل اختلاف"},
+    ],
+    pending:["پیگیری اجرای حکم و تحویل ملک"],
+  },
+  {
+    id:"C-4", number:"140300456780033",
+    title:"خیانت در امانت نسبت به خودروی امانی",
+    type:"کیفری", subject:"خیانت در امانت",
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۹",
+    status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: حسین نوروزی","متهم: رضا صالحی"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۷/۰۲", title:"مهلت ارائه لایحه دفاعیه"},
+    confidence:0.62,
+    documents:[
+      {name:"شکایت.pdf", type:"شکایت", date:"۱۴۰۳/۰۶/۰۸", status:"تایید شده"},
+      {name:"وکالت‌نامه خودرو.jpg", type:"سند مالکیت", date:"۱۴۰۳/۰۶/۰۸", status:"نیاز به بازبینی (کیفیت اسکن پایین)"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۶/۰۸", title:"ثبت شکایت", desc:"عدم استرداد خودرو پس از پایان مدت امانت.", src:"شکایت.pdf", pending:false},
+      {date:"۱۴۰۳/۰۷/۰۲", title:"مهلت ارائه لایحه دفاعیه متهم", desc:"در انتظار وصول لایحه.", src:"—", pending:true},
+    ],
+    financial:{claimed:"۱٬۱۰۰٬۰۰۰٬۰۰۰ ریال (ارزش خودرو)", awarded:"—", fee:"۳۰٬۰۰۰٬۰۰۰ ریال", received:"۱۵٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"خیانت در امانت نسبت به وسیله نقلیه اجاره‌ای", match:72, outcome:"محکومیت متهم", court:"دادسرای عمومی"},
+    ],
+    pending:["نیاز به بازبینی انسانی: کیفیت اسکن سند مالکیت پایین است"],
+    needsReview:true, reviewReason:"کیفیت OCR سند مالکیت پایین است و تاریخ درج‌شده با شکایت اولیه یک روز اختلاف دارد.",
+  },
+  {
+    id:"C-5", number:"140004890120076",
+    title:"نقض قرارداد همکاری تجاری بین دو شرکت",
+    type:"حقوقی", subject:"نقض قرارداد",
+    court:"دادگاه عمومی حقوقی تهران", branch:"شعبه ۲",
+    status:"closed-loss", statusLabel:"مختومه – خلاف نظر موکل", priority:"normal",
+    parties:["خواهان: شرکت آریا تجارت","خوانده: شرکت پارس صنعت"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:null,
+    confidence:0.96,
+    documents:[
+      {name:"دادخواست.pdf", type:"دادخواست", date:"۱۴۰۰/۰۹/۰۱", status:"تایید شده"},
+      {name:"دادنامه بدوی.pdf", type:"دادنامه", date:"۱۴۰۱/۰۱/۲۰", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۰/۰۹/۰۱", title:"ثبت دادخواست", desc:"—", src:"دادخواست.pdf", pending:false},
+      {date:"۱۴۰۱/۰۱/۲۰", title:"صدور رای بدوی", desc:"دعوی خواهان به دلیل عدم اثبات ورود خسارت رد شد.", src:"دادنامه بدوی.pdf", pending:false},
+    ],
+    financial:{claimed:"۲٬۴۰۰٬۰۰۰٬۰۰۰ ریال", awarded:"۰ ریال", fee:"۱۲۰٬۰۰۰٬۰۰۰ ریال", received:"۱۲۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"نقض قرارداد توزیع محصولات", match:66, outcome:"رد دعوی", court:"دادگاه عمومی حقوقی"},
+    ],
+    pending:["بررسی امکان تجدیدنظرخواهی تا پایان مهلت قانونی"],
+  },
+  {
+    id:"C-6", number:"140306778900014",
+    title:"سرقت مسلحانه از واحد صنفی",
+    type:"کیفری", subject:"سرقت مقرون به آزار", 
+    court:"دادسرای عمومی و انقلاب", branch:"شعبه ۱",
+    status:"open", statusLabel:"در جریان رسیدگی", priority:"urgent",
+    parties:["شاکی: فروشگاه زنجیره‌ای رفاه","متهم: در بازداشت موقت"],
+    lawyer:"فاطمه رضایی",
+    nextEvent:{date:"۱۴۰۳/۰۶/۳۰", title:"جلسه دادگاه کیفری یک"},
+    confidence:0.89,
+    documents:[
+      {name:"کیفرخواست.pdf", type:"کیفرخواست", date:"۱۴۰۳/۰۶/۱۵", status:"تایید شده"},
+      {name:"گزارش تصاویر دوربین.pdf", type:"ادله اثباتی", date:"۱۴۰۳/۰۵/۲۰", status:"تایید شده"},
+    ],
+    timeline:[
+      {date:"۱۴۰۳/۰۵/۲۰", title:"وقوع و گزارش اولیه", desc:"—", src:"گزارش تصاویر دوربین.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۱۵", title:"صدور کیفرخواست", desc:"پرونده جهت رسیدگی به دادگاه کیفری یک ارسال شد.", src:"کیفرخواست.pdf", pending:false},
+      {date:"۱۴۰۳/۰۶/۳۰", title:"جلسه دادگاه کیفری یک", desc:"—", src:"—", pending:true},
+    ],
+    financial:{claimed:"۸۰۰٬۰۰۰٬۰۰۰ ریال", awarded:"—", fee:"۶۰٬۰۰۰٬۰۰۰ ریال", received:"۶۰٬۰۰۰٬۰۰۰ ریال"},
+    similar:[
+      {title:"سرقت مسلحانه از واحد صنفی مشابه", match:85, outcome:"محکومیت به حبس تعزیری", court:"دادگاه کیفری یک"},
+      {title:"سرقت با تهدید سلاح سرد", match:70, outcome:"محکومیت به حبس تعزیری", court:"دادگاه کیفری یک"},
+    ],
+    pending:["هماهنگی حضور شاهدان در جلسه دادگاه"],
+  },
+];
+
+const statusMeta = {
+  "open":{cls:"open", txt:"در جریان"},
+  "closed-win":{cls:"closed-win", txt:"مختومه (موفق)"},
+  "closed-loss":{cls:"closed-loss", txt:"مختومه (ناموفق)"},
+};
+
+/* ================= HELPERS ================= */
+function caseIdHTML(num, size){
+  const groups = [num.slice(0,4), num.slice(4,7), num.slice(7)];
+  const cls = size==='lg' ? 'case-id lg' : 'case-id';
+  return `<span class="${cls}">` + groups.map(g=>
+    `<span class="grp">${g.split('').map(d=>`<span class="d">${d}</span>`).join('')}</span>`
+  ).join('') + `</span>`;
+}
+function stampHTML(c){
+  if(c.needsReview) return `<span class="stamp review"><span class="dotc"></span>نیاز به بازبینی انسانی</span>`;
+  const m = statusMeta[c.status];
+  const extra = c.priority==='urgent' && c.status==='open' ? ' urgent' : '';
+  const cls = extra ? 'urgent' : m.cls;
+  return `<span class="stamp ${cls}"><span class="dotc"></span>${extra? 'اولویت بالا · ':''}${m.txt}</span>`;
+}
+function confidenceStamp(v){
+  const pct = Math.round(v*100);
+  let cls = pct>=85?'closed-win': pct>=60?'review':'urgent';
+  return `<span class="stamp ${cls}"><span class="dotc"></span>اطمینان تطبیق ${pct.toLocaleString('fa-IR')}٪</span>`;
+}
+
+const root = document.getElementById('viewRoot');
+let activeView = 'dashboard';
+
+document.querySelectorAll('.nav-item').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    el.classList.add('active');
+    activeView = el.dataset.view;
+    render();
+  });
+});
+document.getElementById('globalSearch').addEventListener('input', (e)=>{
+  if(activeView!=='cases'){
+    document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+    document.querySelector('.nav-item[data-view="cases"]').classList.add('active');
+    activeView='cases';
+  }
+  render(e.target.value);
+});
+
+/* ================= RENDERERS ================= */
+function render(searchTerm){
+  if(activeView==='dashboard') return renderDashboard();
+  if(activeView==='cases') return renderCaseList(searchTerm||'');
+  if(activeView==='case-detail') return renderCaseDetail(window._openCase, window._openTab||'summary');
+  if(activeView==='events') return renderEvents();
+  if(activeView==='ingest') return renderIngestView();
+  if(activeView==='search') return renderSimilarSearch();
+  if(activeView==='analytics') return renderAnalytics();
+}
+
+function renderDashboard(){
+  const openCases = cases.filter(c=>c.status==='open');
+  const urgentReview = cases.filter(c=>c.needsReview);
+  const upcoming = cases.filter(c=>c.nextEvent).sort((a,b)=>a.nextEvent.date.localeCompare(b.nextEvent.date));
+
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head">
+        <div><div class="view-title">داشبورد</div><div class="view-sub">نمای کلی وضعیت پرونده‌ها، مهلت‌ها و اسناد در انتظار بررسی</div></div>
+        <button class="btn" onclick="openIngest()">+ بایگانی سند جدید</button>
+      </div>
+
+      <div class="ledger-grid">
+        <div class="ledger-card"><div class="num">${openCases.length.toLocaleString('fa-IR')}</div><div class="lbl">پرونده در جریان</div></div>
+        <div class="ledger-card accent-amber"><div class="num">${upcoming.length.toLocaleString('fa-IR')}</div><div class="lbl">رویداد در ۳۰ روز آینده</div></div>
+        <div class="ledger-card accent-red"><div class="num">${urgentReview.length.toLocaleString('fa-IR')}</div><div class="lbl">نیازمند بازبینی انسانی</div></div>
+        <div class="ledger-card accent-teal"><div class="num">۹۴٪</div><div class="lbl">میانگین اطمینان تطبیق پرونده</div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>رویدادها و مهلت‌های نزدیک</h3><span style="font-size:12px;color:var(--gray)">مرتب‌شده بر اساس تاریخ</span></div>
+        <div class="panel-body">
+          ${upcoming.map(c=>`
+            <div class="list-row row-hover" onclick="openCase('${c.id}','timeline')">
+              <div>
+                <div style="font-weight:600;font-size:13.4px;">${c.nextEvent.title}</div>
+                <div style="color:var(--gray);font-size:12px;margin-top:2px;">${c.title}</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:14px;">
+                <span class="mono" style="font-size:12.5px;color:var(--ink-soft);">${c.nextEvent.date}</span>
+                ${stampHTML(c)}
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>موارد نیازمند بازبینی انسانی</h3><span style="font-size:12px;color:var(--gray)">به‌دلیل ابهام در تطبیق یا کیفیت پایین OCR</span></div>
+        <div class="panel-body">
+          ${urgentReview.length? urgentReview.map(c=>`
+            <div class="list-row row-hover" onclick="openCase('${c.id}','documents')">
+              <div>
+                <div style="font-weight:600;font-size:13.4px;">${c.title}</div>
+                <div style="color:var(--stamp-red);font-size:11.8px;margin-top:2px;">${c.reviewReason}</div>
+              </div>
+              <button class="btn ghost" onclick="event.stopPropagation();openCase('${c.id}','documents')">بررسی</button>
+            </div>`).join('') : `<div style="padding:14px 4px;color:var(--gray);font-size:13px;">موردی برای بازبینی وجود ندارد.</div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderCaseList(term){
+  term = (term||'').trim();
+  const filtered = cases.filter(c => !term ||
+    c.title.includes(term) || c.number.includes(term) || (c.parties||[]).some(p=>p.includes(term)));
+
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head">
+        <div><div class="view-title">پرونده‌ها</div><div class="view-sub">${filtered.length.toLocaleString('fa-IR')} پرونده${term? ' یافت‌شده برای «'+term+'»':''}</div></div>
+        <button class="btn" onclick="openIngest()">+ پرونده / سند جدید</button>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr>
+            <th>شماره پرونده</th><th>عنوان</th><th>نوع</th><th>دادگاه / شعبه</th><th>وضعیت</th><th>رویداد بعدی</th>
+          </tr></thead>
+          <tbody>
+            ${filtered.map(c=>`
+              <tr class="row-hover" onclick="openCase('${c.id}')">
+                <td>${caseIdHTML(c.number)}</td>
+                <td class="case-title-cell">${c.title}<div class="case-sub">${c.subject}</div></td>
+                <td>${c.type}</td>
+                <td>${c.court}<div class="case-sub">${c.branch}</div></td>
+                <td>${stampHTML(c)}</td>
+                <td class="mono" style="font-size:12.3px;">${c.nextEvent? c.nextEvent.date : '—'}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+window.openCase = function(id, tab){
+  window._openCase = id;
+  window._openTab = tab || 'summary';
+  activeView = 'case-detail';
+  document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));
+  document.querySelector('.nav-item[data-view="cases"]').classList.add('active');
+  render();
+};
+
+const tabs = [
+  {id:'summary', label:'خلاصه'},
+  {id:'timeline', label:'تایم‌لاین'},
+  {id:'documents', label:'اسناد'},
+  {id:'financial', label:'اطلاعات مالی'},
+  {id:'similar', label:'پرونده‌های مشابه'},
+  {id:'pending', label:'اقدامات در انتظار'},
+];
+
+function renderCaseDetail(id, tab){
+  const c = cases.find(x=>x.id===id);
+  if(!c){ renderCaseList(''); return; }
+
+  let body = '';
+  if(tab==='summary'){
+    body = `
+      ${c.needsReview? `<div class="disclaimer">⚠ این پرونده به‌دلیل ابهام در اطلاعات استخراج‌شده نیازمند بازبینی انسانی است: ${c.reviewReason}</div>`:''}
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px;">
+        <div>
+          <h4 style="margin-top:0;">طرفین پرونده</h4>
+          <ul style="padding-inline-start:18px;margin:0 0 18px;">${c.parties.map(p=>`<li style="margin-bottom:4px;">${p}</li>`).join('')}</ul>
+          <h4>آخرین وضعیت</h4>
+          <p style="color:var(--ink-soft);margin:0 0 18px;">${c.timeline[c.timeline.length-1].title} — ${c.timeline[c.timeline.length-1].desc}</p>
+        </div>
+        <div>
+          <h4 style="margin-top:0;">وکیل پرونده</h4>
+          <p style="margin:0 0 18px;">${c.lawyer}</p>
+          <h4>اطمینان تطبیق سیستم</h4>
+          <div style="margin-bottom:18px;">${confidenceStamp(c.confidence)}</div>
+          <h4>اسناد اصلی</h4>
+          <p style="color:var(--gray);font-size:12.8px;">${c.documents.length} سند بایگانی‌شده</p>
+        </div>
+      </div>`;
+  } else if(tab==='timeline'){
+    body = `<div class="tl">${c.timeline.map(t=>`
+      <div class="tl-item ${t.pending?'pending':''}">
+        <div class="tl-dot">${t.pending?'⏳':'✓'}</div>
+        <div>
+          <div class="tl-date">${t.date}</div>
+          <div class="tl-title">${t.title}</div>
+          ${t.desc && t.desc!=='—' ? `<div class="tl-desc">${t.desc}</div>`:''}
+          ${t.src && t.src!=='—' ? `<div class="tl-src">منبع سند: <span>${t.src}</span></div>`:''}
+        </div>
+      </div>`).join('')}</div>`;
+  } else if(tab==='documents'){
+    body = c.documents.map(d=>`
+      <div class="doc-row">
+        <div class="doc-icon">${d.name.split('.').pop().toUpperCase()}</div>
+        <div>
+          <div class="doc-name">${d.name}</div>
+          <div class="doc-meta">${d.type} · بایگانی‌شده در ${d.date}</div>
+        </div>
+        <div class="doc-right">
+          <span class="stamp ${d.status.includes('نیاز')?'review':'closed-win'}"><span class="dotc"></span>${d.status}</span>
+          <button class="btn ghost">مشاهده</button>
+        </div>
+      </div>`).join('');
+  } else if(tab==='financial'){
+    body = `
+      <div class="fin-grid">
+        <div class="fin-box"><div class="lbl">مبلغ خواسته / مطالبه‌شده</div><div class="val mono">${c.financial.claimed}</div></div>
+        <div class="fin-box"><div class="lbl">مبلغ حکم‌شده</div><div class="val mono">${c.financial.awarded}</div></div>
+        <div class="fin-box"><div class="lbl">حق‌الوکاله توافق‌شده</div><div class="val mono">${c.financial.fee}</div></div>
+        <div class="fin-box"><div class="lbl">مبلغ دریافت‌شده</div><div class="val mono">${c.financial.received}</div></div>
+      </div>
+      <p style="color:var(--gray);font-size:12px;margin-top:16px;">مبالغ بر اساس اسناد بایگانی‌شده استخراج شده‌اند و بدون تبدیل واحد ارزی ثبت می‌شوند.</p>`;
+  } else if(tab==='similar'){
+    body = `
+      <div class="disclaimer">این فهرست، «پرونده‌های مشابه تاریخی» را نشان می‌دهد و به‌معنای پیش‌بینی نتیجه پرونده جاری نیست.</div>
+      ${c.similar.map(s=>`
+        <div class="sim-row">
+          <div class="sim-top">
+            <div>
+              <div style="font-weight:600;font-size:13.3px;">${s.title}</div>
+              <div style="color:var(--gray);font-size:11.8px;margin-top:2px;">${s.court} · نتیجه: ${s.outcome}</div>
+            </div>
+            <div class="sim-pct">${s.match.toLocaleString('fa-IR')}٪</div>
+          </div>
+          <div class="sim-bar-track"><div class="sim-bar-fill" style="width:${s.match}%"></div></div>
+        </div>`).join('')}`;
+  } else if(tab==='pending'){
+    body = c.pending.map(p=>`
+      <div class="action-row"><div class="chk"></div><div style="font-size:13.4px;">${p}</div></div>`).join('');
+  }
+
+  root.innerHTML = `
+    <div class="view">
+      <button class="btn ghost" style="margin-bottom:14px;" onclick="activeView='cases';document.querySelector('.nav-item[data-view=cases]').click();">→ بازگشت به فهرست پرونده‌ها</button>
+      <div class="case-cover">
+        <div class="case-cover-top">
+          <div>
+            ${caseIdHTML(c.number,'lg')}
+            <h2 style="margin-top:10px;">${c.title}</h2>
+          </div>
+          ${stampHTML(c)}
+        </div>
+        <div class="case-meta">
+          <div><b>نوع پرونده:</b> ${c.type}</div>
+          <div><b>دادگاه:</b> ${c.court}</div>
+          <div><b>شعبه:</b> ${c.branch}</div>
+          <div><b>موضوع:</b> ${c.subject}</div>
+          ${c.nextEvent? `<div><b>رویداد بعدی:</b> <span class="mono">${c.nextEvent.date}</span> — ${c.nextEvent.title}</div>`:''}
+        </div>
+        <div class="folder-tabs">
+          ${tabs.map(t=>`<div class="folder-tab ${t.id===tab?'active':''}" onclick="openCase('${c.id}','${t.id}')">${t.label}</div>`).join('')}
+        </div>
+      </div>
+      <div class="tab-panel">${body}</div>
+    </div>`;
+}
+
+function renderEvents(){
+  const items = [];
+  cases.forEach(c=> c.timeline.forEach(t=> items.push({...t, case:c})));
+  items.sort((a,b)=>a.date.localeCompare(b.date));
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head"><div><div class="view-title">رویدادها و مهلت‌ها</div><div class="view-sub">تمام رویدادهای ثبت‌شده در تمام پرونده‌ها</div></div></div>
+      <div class="panel"><div class="panel-body">
+        ${items.map(t=>`
+          <div class="list-row row-hover" onclick="openCase('${t.case.id}','timeline')">
+            <div>
+              <div style="font-weight:600;font-size:13.3px;">${t.title}</div>
+              <div style="color:var(--gray);font-size:12px;margin-top:2px;">${t.case.title}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span class="mono" style="font-size:12.3px;">${t.date}</span>
+              ${t.pending? `<span class="stamp review"><span class="dotc"></span>در انتظار</span>` : `<span class="stamp closed-win"><span class="dotc"></span>ثبت‌شده</span>`}
+            </div>
+          </div>`).join('')}
+      </div></div>
+    </div>`;
+}
+
+function renderIngestView(){
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head"><div><div class="view-title">دریافت و بایگانی سند</div><div class="view-sub">شبیه‌سازی خط پردازش هوشمند اسناد ورودی</div></div></div>
+      <div class="panel"><div class="panel-body" style="padding-top:18px;">
+        <div class="dropzone">📥 فایل را اینجا رها کنید یا برای بارگذاری کلیک کنید (PDF، تصویر، Word)</div>
+        <div style="text-align:center;margin-top:14px;">
+          <button class="btn" onclick="openIngest()">شبیه‌سازی بارگذاری سند نمونه</button>
+        </div>
+      </div></div>
+      <div class="panel">
+        <div class="panel-head"><h3>مراحل خط پردازش سند</h3></div>
+        <div class="panel-body" style="font-size:13px;color:var(--ink-soft);padding-top:12px;padding-bottom:16px;">
+          اعتبارسنجی سند ← OCR و درک سند ← طبقه‌بندی ← استخراج موجودیت‌ها ← تطبیق با پرونده‌ها ← اعتبارسنجی اطلاعات ← ایجاد/به‌روزرسانی پرونده ← استخراج رویداد و اطلاعات مالی ← نمایه‌سازی و بایگانی نهایی
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderSimilarSearch(){
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head"><div><div class="view-title">جستجوی معنایی و مشابه‌یاب</div><div class="view-sub">جستجو در محتوای پرونده‌ها فراتر از تطبیق کلیدواژه‌ای</div></div></div>
+      <div class="panel"><div class="panel-body" style="padding-top:16px;">
+        <div class="search-box" style="width:100%;margin-bottom:16px;">
+          <span>⌕</span><input placeholder="مثال: پرونده‌های کیفری مشابه با نتیجه محکومیت در شعبه ۴...">
+        </div>
+        <p style="color:var(--gray);font-size:12.8px;">نمونه پرسش: «پرونده‌های کلاهبرداری اینترنتی مشابه که منجر به محکومیت شده‌اند را نشان بده.»</p>
+      </div></div>
+      <div class="panel">
+        <div class="panel-head"><h3>نتایج برای پرونده جاری: کلاهبرداری اینترنتی از طریق فروشگاه جعلی</h3></div>
+        <div class="panel-body">
+          ${cases[0].similar.map(s=>`
+            <div class="sim-row">
+              <div class="sim-top">
+                <div><div style="font-weight:600;font-size:13.3px;">${s.title}</div>
+                <div style="color:var(--gray);font-size:11.8px;margin-top:2px;">${s.court} · نتیجه: ${s.outcome}</div></div>
+                <div class="sim-pct">${s.match.toLocaleString('fa-IR')}٪</div>
+              </div>
+              <div class="sim-bar-track"><div class="sim-bar-fill" style="width:${s.match}%"></div></div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderAnalytics(){
+  const criminal = cases.filter(c=>c.type==='کیفری').length;
+  const civil = cases.filter(c=>c.type==='حقوقی').length;
+  const win = cases.filter(c=>c.status==='closed-win').length;
+  const loss = cases.filter(c=>c.status==='closed-loss').length;
+  root.innerHTML = `
+    <div class="view">
+      <div class="view-head"><div><div class="view-title">آمار و روند پرونده‌ها</div><div class="view-sub">تحلیل توصیفی بر اساس داده‌های ساختاریافته آرشیو</div></div></div>
+      <div class="ledger-grid">
+        <div class="ledger-card"><div class="num">${criminal.toLocaleString('fa-IR')}</div><div class="lbl">پرونده کیفری</div></div>
+        <div class="ledger-card"><div class="num">${civil.toLocaleString('fa-IR')}</div><div class="lbl">پرونده حقوقی</div></div>
+        <div class="ledger-card accent-teal"><div class="num">${win.toLocaleString('fa-IR')}</div><div class="lbl">مختومه به نفع موکل</div></div>
+        <div class="ledger-card accent-red"><div class="num">${loss.toLocaleString('fa-IR')}</div><div class="lbl">مختومه به ضرر موکل</div></div>
+      </div>
+      <div class="panel"><div class="panel-head"><h3>یادداشت تحلیلی</h3></div>
+      <div class="panel-body" style="padding-top:12px;color:var(--ink-soft);font-size:13.2px;">
+        در میان پرونده‌های مختومه بایگانی‌شده با موضوع مشابه «تخلیه ملک»، اکثریت به نفع موجر خاتمه یافته‌اند؛ این یافته توصیفی است و به‌معنای تضمین نتیجه در پرونده‌های آتی نیست.
+      </div></div>
+    </div>`;
+}
+
+/* ================= INGEST PIPELINE DEMO ================= */
+const pipeStages = [
+  {icon:'✓', label:'اعتبارسنجی سند', sub:'بررسی فرمت، خوانایی و صحت فایل'},
+  {icon:'✓', label:'OCR و درک ساختار سند', sub:'استخراج متن، جداول و امضاها'},
+  {icon:'✓', label:'طبقه‌بندی سند', sub:'نوع سند: قرارداد پیمانکاری — دسته: حقوقی / قرارداد'},
+  {icon:'✓', label:'استخراج موجودیت‌ها', sub:'طرفین، تاریخ‌ها، مبالغ، شماره پرونده'},
+  {icon:'✓', label:'تطبیق با پرونده‌های موجود', sub:'مقایسه با شماره پرونده، طرفین و شعبه'},
+  {icon:'✓', label:'نمایه‌سازی و بایگانی نهایی', sub:'افزودن به تایم‌لاین و آرشیو جستجوپذیر'},
+];
+function openIngest(){
+  document.getElementById('ingestOverlay').classList.add('show');
+  const wrap = document.getElementById('pipeSteps');
+  wrap.innerHTML = pipeStages.map((s,i)=>`
+    <div class="pipe-step" id="step-${i}">
+      <div class="pipe-icon">${i+1}</div>
+      <div><div class="pipe-label">${s.label}</div><div class="pipe-sub">${s.sub}</div></div>
+    </div>`).join('');
+  document.getElementById('pipeResult').classList.remove('show');
+  document.getElementById('pipeRunBtn').disabled = false;
+  document.getElementById('pipeRunBtn').textContent = 'شروع پردازش';
+}
+function closeIngest(){ document.getElementById('ingestOverlay').classList.remove('show'); }
+function runPipeline(){
+  document.getElementById('pipeRunBtn').disabled = true;
+  document.getElementById('pipeRunBtn').textContent = 'در حال پردازش…';
+  pipeStages.forEach((s,i)=>{
+    setTimeout(()=>{
+      const el = document.getElementById(`step-${i}`);
+      el.classList.add('active');
+      if(i>0) document.getElementById(`step-${i-1}`).classList.add('done');
+      if(i===pipeStages.length-1){
+        setTimeout(()=>{
+          el.classList.add('done');
+          const res = document.getElementById('pipeResult');
+          res.classList.add('show');
+          res.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+              <b style="font-size:13.5px;">نتیجه تطبیق</b>${confidenceStamp(0.95)}
+            </div>
+            <div style="font-size:12.8px;color:var(--ink-soft);line-height:1.9;">
+              سند به‌عنوان <b>«ضمیمه قرارداد»</b> شناسایی و به پرونده ${caseIdHTML('140201123400089')}
+              «مطالبه وجه قرارداد پیمانکاری ساختمانی» متصل شد. یک رویداد جدید در تایم‌لاین ثبت گردید.
+            </div>
+            <div style="margin-top:12px;"><button class="btn teal" onclick="closeIngest();openCase('C-2','timeline')">مشاهده در پرونده</button></div>`;
+          document.getElementById('pipeRunBtn').textContent = 'انجام شد ✓';
+        }, 500);
+      }
+    }, i*650);
+  });
+}
+
+/* init */
+render();
+</script>
+</body>
+</html>

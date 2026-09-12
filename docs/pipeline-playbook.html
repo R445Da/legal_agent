@@ -1,0 +1,716 @@
+<title>Legal RAG Engine Playbook</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root {
+    --paper:      #f4f6f8;
+    --surface:    #ffffff;
+    --surface-2:  #eef1f4;
+    --ink:        #1b2430;
+    --ink-soft:   #33404f;
+    --muted:      #5c6a79;
+    --rule:       #dde2e8;
+    --accent:     #8c2f39;
+    --accent-ink: #8c2f39;
+    --accent-soft:#f1e3e4;
+    --config:     #1c6f5b;
+    --config-soft:#e0efe9;
+    --code-tag:   #a4671b;
+    --code-soft:  #f3e7d8;
+    --shadow:     0 1px 2px rgba(27,36,48,.06), 0 8px 24px rgba(27,36,48,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #10141a;
+      --surface:    #181e26;
+      --surface-2:  #1f2732;
+      --ink:        #e5e8ec;
+      --ink-soft:   #c5ccd4;
+      --muted:      #93a0ac;
+      --rule:       #2a333d;
+      --accent:     #db9099;
+      --accent-ink: #e7a7ae;
+      --accent-soft:#2b1e21;
+      --config:     #6fc7ac;
+      --config-soft:#17282a;
+      --code-tag:   #d9a566;
+      --code-soft:  #2c2419;
+      --shadow:     0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #10141a;
+    --surface:    #181e26;
+    --surface-2:  #1f2732;
+    --ink:        #e5e8ec;
+    --ink-soft:   #c5ccd4;
+    --muted:      #93a0ac;
+    --rule:       #2a333d;
+    --accent:     #db9099;
+    --accent-ink: #e7a7ae;
+    --accent-soft:#2b1e21;
+    --config:     #6fc7ac;
+    --config-soft:#17282a;
+    --code-tag:   #d9a566;
+    --code-soft:  #2c2419;
+    --shadow:     0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 50rem; margin: 0 auto; padding: 0 1.4rem 6rem; }
+
+  /* ---- top bar ---- */
+  .topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .topbar-inner {
+    max-width: 50rem; margin: 0 auto; padding: .55rem 1.4rem;
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  }
+  .topbar strong {
+    font-family: "Spectral", Georgia, serif; font-weight: 600;
+    font-size: .96rem; letter-spacing: .01em; white-space: nowrap;
+  }
+  .topbar nav {
+    display: flex; gap: .1rem; flex-wrap: wrap;
+    font-size: .78rem; margin-left: auto;
+  }
+  .topbar nav a {
+    color: var(--muted); text-decoration: none;
+    padding: .2rem .5rem; border-radius: 5px;
+  }
+  .topbar nav a:hover { color: var(--accent-ink); background: var(--accent-soft); }
+
+  /* ---- hero ---- */
+  header.hero { padding: 3.4rem 0 2.2rem; border-bottom: 1px solid var(--rule); }
+  .kicker {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem; letter-spacing: .22em; text-transform: uppercase;
+    color: var(--accent-ink); margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: "Spectral", Georgia, serif;
+    font-weight: 600; font-size: clamp(2rem, 5.5vw, 2.9rem);
+    line-height: 1.12; margin: 0 0 1rem; text-wrap: balance;
+    letter-spacing: -.01em;
+  }
+  .standfirst { font-size: 1.08rem; color: var(--ink-soft); margin: 0; max-width: 42rem; }
+  .meta {
+    margin-top: 1.6rem; font-family: "IBM Plex Mono", monospace;
+    font-size: .74rem; color: var(--muted); letter-spacing: .02em;
+  }
+
+  h2 {
+    font-family: "Spectral", Georgia, serif;
+    font-weight: 600; font-size: 1.6rem; line-height: 1.2;
+    margin: 3.4rem 0 1rem; padding-top: .6rem; text-wrap: balance;
+    display: flex; align-items: baseline; gap: .7rem;
+  }
+  h2 .num {
+    font-family: "IBM Plex Mono", monospace; font-size: .82rem;
+    color: var(--accent-ink); font-weight: 500;
+    border: 1px solid var(--accent-soft); background: var(--accent-soft);
+    border-radius: 5px; padding: .12rem .45rem; transform: translateY(-.18rem);
+  }
+  h3 {
+    font-family: "IBM Plex Sans", sans-serif; font-weight: 600;
+    font-size: 1.06rem; margin: 2rem 0 .6rem; color: var(--ink);
+  }
+
+  p { margin: 0 0 1rem; }
+  a { color: var(--accent-ink); }
+  strong { font-weight: 600; color: var(--ink); }
+  ul, ol { margin: 0 0 1rem; padding-left: 1.3rem; }
+  li { margin: .3rem 0; }
+  li::marker { color: var(--muted); }
+
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .84em; background: var(--surface-2);
+    padding: .12em .38em; border-radius: 4px;
+    border: 1px solid var(--rule);
+  }
+  .fa { direction: rtl; font-family: "IBM Plex Sans Arabic", "IBM Plex Sans", Tahoma, sans-serif; }
+
+  /* ---- code block ---- */
+  .code {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 9px; margin: 0 0 1.3rem; overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  .code .file {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem;
+    letter-spacing: .04em; color: var(--muted);
+    background: var(--surface-2); border-bottom: 1px solid var(--rule);
+    padding: .4rem .85rem;
+  }
+  .code pre {
+    margin: 0; padding: .9rem 1rem; overflow-x: auto;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .8rem; line-height: 1.7; color: var(--ink-soft);
+  }
+  .code pre .c { color: var(--muted); }
+  .code pre .k { color: var(--accent-ink); }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: .9rem 1.1rem; border-radius: 0 8px 8px 0;
+    margin: 0 0 1.3rem; font-size: .95rem;
+  }
+  .note.ml { border-left-color: var(--config); background: var(--config-soft); }
+  .note .lab {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+    display: block; margin-bottom: .3rem;
+  }
+
+  /* ---- pipeline rail ---- */
+  .rail {
+    display: grid; grid-template-columns: repeat(6, 1fr); gap: .5rem;
+    margin: 1.6rem 0 .8rem;
+  }
+  .stage {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 8px; padding: .7rem .6rem; position: relative;
+    box-shadow: var(--shadow);
+  }
+  .stage .n {
+    font-family: "IBM Plex Mono", monospace; font-size: .64rem;
+    color: var(--muted); letter-spacing: .1em;
+  }
+  .stage .t {
+    font-family: "Spectral", Georgia, serif; font-weight: 600;
+    font-size: .92rem; margin: .15rem 0 .35rem;
+  }
+  .stage .f {
+    font-family: "IBM Plex Mono", monospace; font-size: .64rem;
+    color: var(--muted); line-height: 1.4; word-break: break-word;
+  }
+  .pill {
+    display: inline-block; margin-top: .45rem;
+    font-family: "IBM Plex Mono", monospace; font-size: .6rem;
+    letter-spacing: .06em; text-transform: uppercase;
+    padding: .1rem .4rem; border-radius: 4px;
+  }
+  .pill.cfg { background: var(--config-soft); color: var(--config); border: 1px solid var(--config); }
+  .pill.cod { background: var(--code-soft); color: var(--code-tag); border: 1px solid var(--code-tag); }
+  .rail-legend {
+    font-size: .8rem; color: var(--muted); margin: 0 0 1rem;
+    display: flex; gap: 1.2rem; flex-wrap: wrap;
+  }
+  .rail-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+  .dot { width: .6rem; height: .6rem; border-radius: 3px; display: inline-block; }
+  .dot.cfg { background: var(--config); }
+  .dot.cod { background: var(--code-tag); }
+
+  @media (max-width: 760px) {
+    .rail { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ---- table ---- */
+  .tbl-scroll { overflow-x: auto; margin: 0 0 1.4rem; }
+  table {
+    border-collapse: collapse; width: 100%; font-size: .88rem;
+    background: var(--surface); border-radius: 8px; overflow: hidden;
+    box-shadow: var(--shadow);
+  }
+  th, td { text-align: left; padding: .6rem .8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    background: var(--surface-2);
+  }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: .8em; }
+  .num-col { font-variant-numeric: tabular-nums; }
+
+  hr { border: none; border-top: 1px solid var(--rule); margin: 3rem 0 0; }
+
+  footer {
+    margin-top: 2.4rem; padding-top: 1.4rem; border-top: 1px solid var(--rule);
+    font-size: .82rem; color: var(--muted);
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+
+<div class="topbar">
+  <div class="topbar-inner">
+    <strong>Legal RAG Engine Playbook</strong>
+    <nav>
+      <a href="#map">Map</a>
+      <a href="#llm">Swap the LLM</a>
+      <a href="#embed">Swap embeddings</a>
+      <a href="#ml">What it's doing</a>
+      <a href="#measure">Measure</a>
+      <a href="#deeper">Go deeper</a>
+      <a href="#learn">Learn</a>
+      <a href="#setup">Setup</a>
+    </nav>
+  </div>
+</div>
+
+<div class="wrap">
+
+<header class="hero">
+  <p class="kicker">legal-rag-mvp · internal</p>
+  <h1>Tuning the retrieval pipeline without rewriting it</h1>
+  <p class="standfirst">
+    This system is a chain of six swappable stages. Some you change with an <code>.env</code>
+    line and a restart; some need code. This is the map of which is which, what each stage
+    is actually doing in machine-learning terms, and how to prove a change was an improvement.
+  </p>
+  <p class="meta">Written 2026-08-28 against the current tree · pair with <code>docs/CODEBASE_CONTEXT.md</code></p>
+</header>
+
+<h2 id="map"><span class="num">1</span> The pipeline and the one seam that matters</h2>
+
+<p>
+  A question travels through the system left to right. Each box below names the file that
+  owns that stage and how you replace it.
+</p>
+
+<div class="rail">
+  <div class="stage">
+    <div class="n">01</div><div class="t">Ingest</div>
+    <div class="f">scripts/ingest.py<br>rag/ingest.py</div>
+    <span class="pill cod">code</span>
+  </div>
+  <div class="stage">
+    <div class="n">02</div><div class="t">Chunk</div>
+    <div class="f">rag/ingest.py<br>chunk_text()</div>
+    <span class="pill cod">code</span>
+  </div>
+  <div class="stage">
+    <div class="n">03</div><div class="t">Embed</div>
+    <div class="f">rag/embeddings.py<br>EMBEDDING_MODEL</div>
+    <span class="pill cfg">config*</span>
+  </div>
+  <div class="stage">
+    <div class="n">04</div><div class="t">Store</div>
+    <div class="f">db/models.py<br>EMBEDDING_DIM</div>
+    <span class="pill cfg">config</span>
+  </div>
+  <div class="stage">
+    <div class="n">05</div><div class="t">Retrieve</div>
+    <div class="f">rag/retriever.py<br>rag/rerank.py</div>
+    <span class="pill cfg">hybrid+rerank</span>
+  </div>
+  <div class="stage">
+    <div class="n">06</div><div class="t">Generate</div>
+    <div class="f">rag/pipeline.py<br>llm/ · LLM_PROVIDER</div>
+    <span class="pill cfg">config</span>
+  </div>
+</div>
+<p class="rail-legend">
+  <span><span class="dot cfg"></span> swap via <code>.env</code> + restart</span>
+  <span><span class="dot cod"></span> swap via code change</span>
+  <span>* embed also needs a re-ingest — see §3</span>
+</p>
+
+<p>
+  The generation stage is a config change because of a deliberate design choice. One file,
+  <code>app/llm/base.py</code>, defines the contract every model backend must satisfy —
+  an async <code>generate()</code> and an <code>is_available()</code> check. One file,
+  <code>app/llm/factory.py</code>, is the <em>only</em> place a concrete backend is picked.
+  Everything downstream — the RAG pipeline, the intent router, the API routes — depends on
+  the interface, never on <code>AnthropicProvider</code> or <code>OpenAIProvider</code> directly.
+</p>
+
+<div class="note">
+  <span class="lab">the takeaway</span>
+  Because nothing imports a provider class directly, moving from the local model to a cloud
+  API is an <code>.env</code> edit plus a process restart. No code touches the pipeline.
+</div>
+
+<h2 id="llm"><span class="num">2</span> Swapping the generation model to a cloud API</h2>
+
+<p>
+  Three backends are already wired and their SDKs (<code>anthropic</code>, <code>openai</code>)
+  are already installed in <code>.venv</code>:
+</p>
+
+<div class="tbl-scroll">
+<table>
+  <tr><th>Provider</th><th>LLM_PROVIDER</th><th>Also set</th><th>Notes</th></tr>
+  <tr>
+    <td>Anthropic</td><td><code>anthropic</code></td>
+    <td><code>ANTHROPIC_API_KEY</code><br><code>LLM_MODEL=claude-sonnet-5</code></td>
+    <td>JSON via assistant-prefill trick</td>
+  </tr>
+  <tr>
+    <td>OpenAI</td><td><code>openai</code></td>
+    <td><code>OPENAI_API_KEY</code><br><code>LLM_MODEL=gpt-4.1</code></td>
+    <td>native <code>response_format: json_object</code></td>
+  </tr>
+  <tr>
+    <td>Any OpenAI-compatible host<br>(Groq, Together, OpenRouter, Fireworks, vLLM)</td>
+    <td><code>openai</code></td>
+    <td><code>OPENAI_API_KEY</code><br><code>OPENAI_BASE_URL=https://…/v1</code><br><code>LLM_MODEL=&lt;host's model id&gt;</code></td>
+    <td>same provider class, different endpoint</td>
+  </tr>
+</table>
+</div>
+
+<h3>The procedure</h3>
+<ol>
+  <li>Get an API key from the provider.</li>
+  <li>Edit <code>.env</code> — for example, to run Claude Sonnet:
+    <div class="code" style="margin-top:.6rem">
+      <div class="file">.env</div>
+<pre><span class="c"># was: LLM_PROVIDER=local  /  LLM_MODEL=qwen2.5:3b</span>
+<span class="k">LLM_PROVIDER</span>=anthropic
+<span class="k">LLM_MODEL</span>=claude-sonnet-5
+<span class="k">ANTHROPIC_API_KEY</span>=sk-ant-…</pre>
+    </div>
+  </li>
+  <li>Restart the server. The provider is constructed <strong>once</strong> at startup
+    (<code>app/main.py</code> lifespan → <code>app.state.llm</code>); a running process will
+    not pick up the change.</li>
+  <li>Verify:
+    <div class="code" style="margin-top:.6rem">
+      <div class="file">terminal</div>
+<pre>curl -s localhost:8000/health | jq '{llm_provider, llm_model, llm_available}'
+<span class="c"># → {"llm_provider":"anthropic","llm_model":"claude-sonnet-5","llm_available":true}</span>
+
+curl -s localhost:8000/ask -H 'content-type: application/json' \
+  -d '{"question":"Hadley v Baxendale — what damages rule?","top_k":5}'</pre>
+    </div>
+  </li>
+</ol>
+
+<div class="note">
+  <span class="lab">on record in CODEBASE_CONTEXT §5</span>
+  Groq and Google Gemini are geo-blocked from the network this runs on, which is why the
+  default is local. A cloud key still needs a route that resolves — a provider that isn't
+  blocked, or an outbound proxy.
+</div>
+
+<h3>Per-request override, no restart</h3>
+<p>
+  <code>POST /ask</code> and <code>POST /assistant</code> accept an optional <code>model</code>
+  field, and <code>GET /models</code> lists what's reachable. For the local provider that's
+  everything in <code>ollama list</code>; for a cloud provider it reports the configured model.
+  Useful for a quick A/B without editing <code>.env</code> — but the provider itself
+  (<code>anthropic</code> vs <code>openai</code> vs <code>local</code>) is still fixed at startup.
+</p>
+
+<h3>Adding a provider that isn't wired yet</h3>
+<p>
+  Say Cohere, or Vertex, or a bespoke endpoint. Copy one of the ~40-line files in
+  <code>app/llm/</code>, implement <code>generate()</code> and <code>is_available()</code>
+  against <code>base.py</code>, and add one line to <code>_PROVIDERS</code> in
+  <code>factory.py</code>. Nothing else changes.
+</p>
+
+<h3>Rough cost per question</h3>
+<p>
+  One assistant request is 1–2 model calls. The RAG call sends roughly 1.5–2.5k input tokens
+  (five ~900-char chunks plus the prompt) and generates ~300–800. Indicative first-party
+  Anthropic rates:
+</p>
+<div class="tbl-scroll">
+<table>
+  <tr><th>Model</th><th class="num-col">Input $/1M</th><th class="num-col">Output $/1M</th><th>≈ per question</th></tr>
+  <tr><td>Claude Haiku 4.5</td><td class="num-col">1.00</td><td class="num-col">5.00</td><td class="num-col">~$0.005</td></tr>
+  <tr><td>Claude Sonnet 5</td><td class="num-col">2.00</td><td class="num-col">10.00</td><td class="num-col">~$0.01</td></tr>
+  <tr><td>Claude Opus 5</td><td class="num-col">5.00</td><td class="num-col">25.00</td><td class="num-col">~$0.03</td></tr>
+  <tr><td>local qwen2.5:3b</td><td class="num-col">—</td><td class="num-col">—</td><td>free · 2–8 s/answer</td></tr>
+</table>
+</div>
+<p style="font-size:.86rem;color:var(--muted)">
+  Estimates only. Prompt caching on the fixed system prompt lowers input cost further.
+  Verify against the provider's live pricing before budgeting.
+</p>
+
+<h2 id="embed"><span class="num">3</span> Swapping the embedding model — the harder one</h2>
+
+<p>
+  The embedding model defines the <em>vector space</em> the whole index lives in. Vectors
+  written by model A are meaningless to model B, so you cannot swap it in place — you
+  re-embed the corpus. Three things must move together:
+</p>
+
+<div class="tbl-scroll">
+<table>
+  <tr><th>Var</th><th>Read in</th><th>Must equal</th></tr>
+  <tr><td><code>EMBEDDING_MODEL</code></td><td><code>config.py</code> → <code>embeddings.py</code></td><td>a model <code>fastembed</code> supports</td></tr>
+  <tr><td><code>EMBEDDING_DIM</code></td><td><code>db/models.py</code> — <em>directly from os.environ, not via Settings</em></td><td>that model's output dimension</td></tr>
+  <tr><td><code>EMBEDDING_PREFIXES</code></td><td><code>embeddings.py</code> directly</td><td><code>1</code> for the e5 family, <code>0</code> for bge / paraphrase-multilingual</td></tr>
+</table>
+</div>
+
+<div class="note">
+  <span class="lab">easy to get wrong</span>
+  <code>EMBEDDING_DIM</code> bypasses <code>config.py</code> entirely. If it doesn't match the
+  model, the mismatch surfaces as an insert or query error against the fixed-width pgvector
+  column — not a clear message. Current tree: <code>paraphrase-multilingual-MiniLM-L12-v2</code>,
+  384-dim, prefixes off. <code>.env.example</code> proposes <code>intfloat/multilingual-e5-large</code>,
+  1024-dim, prefixes on — better Persian, slower.
+</div>
+
+<div class="code">
+  <div class="file">terminal — after editing all three vars</div>
+<pre>python -m scripts.ingest data/farsi --reset   <span class="c"># re-chunk + re-embed the corpus</span>
+python -m scripts.extract --reset             <span class="c"># rebuild structured Entry rows (uses the LLM)</span>
+python -m scripts.eval                        <span class="c"># confirm retrieval didn't regress</span></pre>
+</div>
+
+<h3>Using a cloud embedding API</h3>
+<p>
+  <code>embeddings.py</code> currently hardwires <code>fastembed</code> (local ONNX, no GPU).
+  To call OpenAI <code>text-embedding-3-large</code>, Cohere <code>embed-v4</code>, or Voyage,
+  you replace three functions — <code>_model()</code>, <code>embed_passages()</code>,
+  <code>embed_query()</code> — with API calls that return the same <code>list[float]</code>,
+  and set <code>EMBEDDING_DIM</code> to the API model's dimension. The retriever, the schema,
+  and the pipeline are untouched. This is a genuine code change, but a contained one.
+</p>
+
+<h2 id="ml"><span class="num">4</span> What each stage is actually doing</h2>
+
+<p>Enough of the machine learning to reason about a change instead of guessing at it.</p>
+
+<h3>Embedding: text → a point in space</h3>
+<p>
+  A transformer encoder reads a passage and emits a fixed-length list of numbers — here 384
+  of them. It was trained so that passages with similar <em>meaning</em> land close together
+  and unrelated ones land far apart (contrastive training on labelled pairs). A multilingual
+  model puts all languages in <em>one</em> shared space, which is the reason a Persian query
+  can retrieve a Persian passage at all. Nothing here is generative; it's a fixed function
+  from string to vector.
+</p>
+<div class="note ml">
+  <span class="lab">why the prefixes flag exists</span>
+  e5-family models were trained with the literal strings <code>"query: "</code> and
+  <code>"passage: "</code> prepended, so they learned two asymmetric roles. Feed them text
+  without that convention and retrieval quality drops. Models outside that family never saw
+  the prefixes and should run with <code>EMBEDDING_PREFIXES=0</code>.
+</div>
+
+<h3>Retrieval: three stages, fused then re-ranked</h3>
+<p>
+  <code>retriever.py</code> now runs a hybrid pipeline. <strong>Stage&nbsp;1a</strong> embeds the
+  query and asks Postgres (pgvector) for the nearest chunks by cosine distance — the angle
+  between the two vectors. <strong>Stage&nbsp;1b</strong> runs a Postgres full-text query over
+  the same chunks (an <code>OR</code> of the query's word tokens against a stored
+  <code>tsvector</code> column), which catches exact terms — names, case numbers, statute
+  refs — that a blurry embedding misses. The two ranked lists are fused with
+  <strong>Reciprocal Rank Fusion</strong> (<code>RRF_LEX_WEIGHT</code> discounts the noisier
+  lexical vote). <strong>Stage&nbsp;2</strong> takes the fused top&nbsp;<code>RERANK_TOP</code>
+  and re-scores each <em>(query, chunk)</em> pair with a multilingual cross-encoder
+  (<code>jinaai/jina-reranker-v2-base-multilingual</code>) that reads both texts together;
+  its top&nbsp;<code>k</code> is the final result. Every stage has an env toggle
+  (<code>HYBRID=0</code>, <code>RERANK=0</code>) so <code>scripts/eval.py</code> can measure
+  each one's contribution.
+</p>
+<div class="note ml">
+  <span class="lab">measured on eval/farsi.jsonl (17 cases)</span>
+  vector-only → hybrid → hybrid+rerank: <strong>hit@1</strong> 0.41 → 0.59 → 0.88,
+  <strong>MRR</strong> 0.63 → 0.76 → 0.94, <strong>cov@5</strong> 0.60 → 0.85 → 0.95.
+  The reranker is the biggest single lever; the lexical stage is what fixed the
+  name/number queries.
+</div>
+
+<h3>Chunking: why the corpus is cut up first</h3>
+<p>
+  Documents are sliced into ~900-character windows with 150 of overlap before embedding,
+  because a single vector loses fidelity over long text, and because you want to hand the
+  model the relevant paragraph, not a whole case file. Fixed-size windows are the naive
+  version — they cut mid-sentence and ignore legal structure
+  (<span class="fa">ماده</span>, <span class="fa">بند</span>, <span class="fa">تبصره</span>).
+  Structure-aware chunking is a known gap, flagged in <code>chunk_text()</code> itself.
+</p>
+
+<h3>Generation: grounded, not looked-up</h3>
+<p>
+  The top 5 chunks are numbered <code>[1]</code>…<code>[5]</code> and pasted into a prompt
+  with a system instruction: answer only from these excerpts, cite the bracket number for
+  every claim, reply in the question's language. The model is doing conditioned text
+  generation. It is <em>not</em> retrieving anything itself — everything it can legitimately
+  cite has to be in those five chunks. That constraint is the entire point of RAG: the model
+  can't invent a statute or a holding, because it was only given the retrieved text.
+</p>
+<div class="note ml">
+  <span class="lab">what this system does not do</span>
+  No agent loop, no multi-hop, no tool calls, no query rewriting. One retrieve, one generate.
+  The "assistant" layer adds a single-shot intent classifier in front (query / archive /
+  analytics) — still one pass, no planning. Be precise about this when scoping work.
+</div>
+
+<h2 id="measure"><span class="num">5</span> Proving a change helped</h2>
+
+<p>
+  Every knob in §2–§4 is a hypothesis. <code>scripts/eval.py</code> (and the mirrored
+  <code>POST /eval</code>) scores retrieval against <code>eval/farsi.jsonl</code>:
+</p>
+
+<div class="tbl-scroll">
+<table>
+  <tr><th>Metric</th><th>Question it answers</th></tr>
+  <tr><td><code>hit@1 / hit@3 / hit@k</code></td><td>did any expected document land in the top-N?</td></tr>
+  <tr><td><code>MRR</code></td><td>how high did the first expected document rank? (1 / rank, averaged)</td></tr>
+  <tr><td><code>cov@k</code></td><td>for multi-document questions, what fraction of expected docs were retrieved?</td></tr>
+</table>
+</div>
+
+<p>
+  These measure <strong>retrieval only</strong>. <code>--ask</code> also runs generation and
+  prints answers for manual reading — there is no automatic answer scoring yet (that gap is
+  where an LLM-as-judge would go: send both answers plus the gold context to a strong model
+  and ask which is better grounded).
+</p>
+
+<h3>The experiment loop</h3>
+<ol>
+  <li><code>python -m scripts.eval</code> → write down the baseline numbers.</li>
+  <li>Change <strong>one</strong> thing: embedding model, chunk size, <code>top_k</code>, prefixes, the answer prompt.</li>
+  <li>If embeddings or chunking changed: <code>python -m scripts.ingest data/farsi --reset</code>.</li>
+  <li><code>python -m scripts.eval</code> → compare. Keep or revert.</li>
+</ol>
+
+<div class="note">
+  <span class="lab">highest-leverage move</span>
+  Grow <code>eval/farsi.jsonl</code>. Each line is
+  <code>{q, expect:[source-substring], kind, want_all?}</code>. Twenty to fifty real questions
+  from how lawyers actually phrase things is worth more than any single model swap, because
+  without them you're tuning blind.
+</div>
+
+<h2 id="deeper"><span class="num">6</span> When a config change isn't enough</h2>
+
+<div class="tbl-scroll">
+<table>
+  <tr><th>Change</th><th>Where</th><th>Effort</th><th>Expected payoff</th></tr>
+  <tr>
+    <td>Hybrid retrieval (BM25 + vector)</td>
+    <td><strong>done</strong> — <code>retriever.py</code>, fused with RRF; the <code>tsvector</code> column is a stored generated column on <code>chunks</code></td>
+    <td>—</td>
+    <td>delivered: name/number queries went from cov@5 0.60 → 0.85</td>
+  </tr>
+  <tr>
+    <td>Re-ranking</td>
+    <td><strong>done</strong> — <code>rag/rerank.py</code>, multilingual cross-encoder over the fused shortlist</td>
+    <td>—</td>
+    <td>delivered: hit@1 0.59 → 0.88, MRR 0.76 → 0.94</td>
+  </tr>
+  <tr>
+    <td>Upgrade embeddings to e5-large (1024-d)</td>
+    <td><code>scripts/upgrade_embeddings.py</code> — model is downloaded; needs a <code>.pgdata</code> rebuild + re-ingest + re-extract</td>
+    <td>small (one script)</td>
+    <td>incremental now that rerank carries most of the precision</td>
+  </tr>
+  <tr>
+    <td>Structure-aware chunking</td>
+    <td><code>ingest.py::chunk_text</code> — split on legal structure and headings instead of a fixed window</td>
+    <td>small–medium</td>
+    <td>medium</td>
+  </tr>
+  <tr>
+    <td>Metadata filters (court, date, jurisdiction)</td>
+    <td>capture metadata at ingest + add a <code>WHERE</code> clause to the retrieval query</td>
+    <td>medium</td>
+    <td>large once the corpus is big</td>
+  </tr>
+  <tr>
+    <td>Fine-tune the embedding model on Persian legal pairs</td>
+    <td>out-of-tree: build a (query, relevant-passage) dataset, train with sentence-transformers</td>
+    <td>large</td>
+    <td>only worth it once off-the-shelf multilingual models measurably plateau</td>
+  </tr>
+</table>
+</div>
+
+<h2 id="learn"><span class="num">7</span> Filling the knowledge gap — a path for the team</h2>
+
+<p>Work through these in order. Each is a concept plus something concrete to do with it.</p>
+
+<ol>
+  <li><strong>Dense retrieval &amp; vector search</strong> — cosine similarity, embedding spaces,
+    approximate-nearest-neighbour indexes (HNSW). Read the pgvector README and the
+    sentence-transformers "semantic search" documentation; then run <code>scripts/eval.py</code>
+    and change <code>top_k</code> to feel the trade-off.</li>
+  <li><strong>Chunking strategies</strong> — fixed vs recursive vs structure-aware vs semantic.
+    Experiment directly in <code>chunk_text()</code> and measure.</li>
+  <li><strong>RAG fundamentals</strong> — the original retrieval-augmented generation paper
+    (Lewis et al., 2020) for the core idea; any current "advanced RAG" survey for the
+    vocabulary: query rewriting, HyDE, hybrid search, re-ranking, fusion.</li>
+  <li><strong>Evaluation</strong> — retrieval metrics (hit rate, MRR, nDCG) vs answer metrics
+    (faithfulness, answer relevance). Look at RAGAS and TREC-style <code>ir_measures</code>.
+    Understand why LLM-as-judge is useful and where it's biased.</li>
+  <li><strong>Re-ranking</strong> — bi-encoder (fast, what we have) vs cross-encoder (slow,
+    accurate). Read the BGE and mxbai reranker model cards.</li>
+  <li><strong>Grounded generation &amp; prompting</strong> — the Anthropic and OpenAI prompting
+    guides; citation and faithfulness techniques; how context position affects what the model
+    uses ("lost in the middle").</li>
+  <li><strong>Persian NLP specifics</strong> — text normalization (ZWNJ, Arabic vs Persian
+    yeh/kaf), the Hazm and Parsivar libraries, and how multilingual-e5 scores on Persian
+    retrieval benchmarks.</li>
+  <li><strong>Production concerns</strong> — vector-DB scaling and index types, caching
+    embeddings, latency and cost budgets, when to move off embedded Postgres.</li>
+</ol>
+
+<div class="note">
+  <span class="lab">fastest way into this codebase specifically</span>
+  Read <code>docs/CODEBASE_CONTEXT.md</code> end to end. Then trace one request each way:
+  a question through <code>pipeline.py → retriever.py → embeddings.py</code>, and an assistant
+  turn through <code>orchestrator.py</code>. That's ~300 lines and covers the whole system.
+</div>
+
+<h2 id="setup"><span class="num">8</span> Getting a new developer running</h2>
+
+<div class="code">
+  <div class="file">terminal</div>
+<pre>uv venv --python 3.12            <span class="c"># pgserver needs Python ≤ 3.12</span>
+uv pip install -r requirements.txt
+cp .env.example .env             <span class="c"># then edit — see §2 / §3</span>
+
+<span class="c"># local baseline (no API keys, works offline):</span>
+ollama pull qwen2.5:3b
+python -m scripts.ingest data/farsi
+python -m scripts.extract        <span class="c"># ~15 s/doc, uses the LLM</span>
+scripts/serve.sh                 <span class="c"># API + UI on :8000</span>
+
+python -m scripts.eval           <span class="c"># baseline retrieval numbers</span></pre>
+</div>
+
+<p>
+  To develop against a cloud model instead, set <code>.env</code> per §2 and skip the
+  <code>ollama pull</code>. Two things to know before you change data models:
+  there are <strong>no tests</strong> and <strong>no migrations</strong> in the tree — the
+  schema is <code>create_all</code> on startup, so a model change needs a manual DB rebuild
+  (<code>rm -rf .pgdata</code> then re-ingest).
+</p>
+
+<div class="note">
+  <span class="lab">before experiments multiply</span>
+  This directory isn't a git repository yet. <code>git init</code>, push it to GitHub, and
+  run each experiment on its own branch — the eval numbers in the commit message become the
+  record of what worked.
+</div>
+
+<hr>
+<footer>
+  Legal RAG Engine Playbook · derived from the current source tree, 2026-08-28.
+  Treat it as a map: verify against the code before relying on a specific line.
+  Companion document: <code>docs/CODEBASE_CONTEXT.md</code>.
+</footer>
+
+</div>

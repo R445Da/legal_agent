@@ -1,0 +1,17 @@
+{"q": "کدام پرونده درباره کالای معیوب و ارجاع به کارشناسی برای بررسی کیفیت است؟", "expect": ["jalase_nemune_1"], "kind": "topical"}
+{"q": "دعوای مطالبه وجه چک برگشتی که خواهان آن بانک ملت است", "expect": ["jalase_check_bargashti"], "kind": "topical"}
+{"q": "پرونده الزام به تنظیم سند رسمی آپارتمان و وجه التزام تأخیر در تحویل", "expect": ["jalase_nemune_2"], "kind": "topical"}
+{"q": "اختلاف کارگری درباره اخراج غیرموجه در شرکت پتروشیمی", "expect": ["jalase_kargari_petroshimi"], "kind": "topical"}
+{"q": "طلاق توافقی و توافق درباره حضانت فرزند و مهریه", "expect": ["jalase_talagh_tavafoghi"], "kind": "topical"}
+{"q": "دعوای پیمانکار علیه شهرداری بابت فسخ یک‌جانبه قرارداد و صورت‌وضعیت", "expect": ["gharardad_peymankari"], "kind": "topical"}
+{"q": "نقض حق مؤلف نرم‌افزار و کپی‌برداری از کد منبع سامانه حسابداری", "expect": ["malekiat_fekri_narmafzar"], "kind": "topical"}
+{"q": "مرور زمان در دعاوی اسناد تجاری و مطالبه وجه", "expect": ["nazar_hoquqi_moroor_zaman"], "kind": "topical"}
+{"q": "پرونده کیفری کلاهبرداری از طریق فروش مال غیر و خودرو در رهن بانک", "expect": ["jalase_kaifari_kolahbardari"], "kind": "topical"}
+{"q": "دعوای تخلیه مغازه تجاری و حق کسب و پیشه و سرقفلی", "expect": ["gharardad_ejare_tejari_bank"], "kind": "topical"}
+{"q": "رفع تصرف عدوانی از زمین کشاورزی و تخریب محصول گندم", "expect": ["jalase_tasarrof_odwani_zamin"], "kind": "topical"}
+{"q": "برنامه هفتگی دفتر و تقسیم کار میان وکلا", "expect": ["daftar_barnameh_haftegi"], "kind": "topical"}
+{"q": "در کدام پرونده‌ها آقای محمد احمدی طرف دعوا یا متهم بوده است؟", "expect": ["jalase_nemune_1", "jalase_check_bargashti", "jalase_kaifari_kolahbardari"], "kind": "entity", "want_all": false}
+{"q": "پرونده‌هایی که آقای رضا کریمی در آن‌ها وکالت داشته است", "expect": ["jalase_nemune_1", "jalase_nemune_2", "malekiat_fekri_narmafzar", "yaddasht_jalase_movakel_rahimi", "jalase_tasarrof_odwani_zamin"], "kind": "entity", "want_all": false}
+{"q": "پرونده‌های مرتبط با بانک ملت", "expect": ["jalase_check_bargashti", "gharardad_ejare_tejari_bank"], "kind": "entity", "want_all": false}
+{"q": "دعاوی مربوط به آقای علی مرادی", "expect": ["jalase_kargari_petroshimi", "jalase_tasarrof_odwani_zamin"], "kind": "entity", "want_all": false}
+{"q": "یادداشت جلسه با موکل خانم فاطمه رحیمی و تصمیم درباره دستور موقت", "expect": ["yaddasht_jalase_movakel_rahimi"], "kind": "topical"}

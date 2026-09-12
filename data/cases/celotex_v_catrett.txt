@@ -1,0 +1,24 @@
+Celotex Corp. v. Catrett, 477 U.S. 317 (1986)
+United States Supreme Court
+Topic: Summary judgment — burden of the moving party
+
+Excerpt:
+
+Under Rule 56(c) of the Federal Rules of Civil Procedure, summary judgment
+is proper "if the pleadings, depositions, answers to interrogatories, and
+admissions on file, together with the affidavits, if any, show that there
+is no genuine issue as to any material fact and that the moving party is
+entitled to a judgment as a matter of law."
+
+The Court held that the moving party does not need to support its motion
+with affidavits or other materials that negate the opponent's claim.
+Instead, the burden on the moving party may be discharged by "showing" —
+that is, pointing out to the district court — that there is an absence of
+evidence to support the nonmoving party's case.
+
+Where the nonmoving party will bear the burden of proof at trial on a
+dispositive issue, that party must go beyond the pleadings and designate
+"specific facts showing that there is a genuine issue for trial." A
+complete failure of proof concerning an essential element of the nonmoving
+party's case necessarily renders all other facts immaterial, and the
+moving party is entitled to judgment as a matter of law.

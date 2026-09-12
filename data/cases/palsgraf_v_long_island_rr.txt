@@ -1,0 +1,25 @@
+Palsgraf v. Long Island Railroad Co., 248 N.Y. 339 (1928)
+New York Court of Appeals
+Topic: Negligence — duty of care and foreseeability (proximate cause)
+
+Excerpt:
+
+Railroad guards, helping a passenger board a moving train, dislodged a
+package from his arms. The package, which contained fireworks, exploded
+when it fell. The shock of the explosion was alleged to have knocked over
+scales at the far end of the platform, injuring Mrs. Palsgraf.
+
+Chief Judge Cardozo, writing for the majority, held that the railroad owed
+no duty to Mrs. Palsgraf under these facts. Negligence is not actionable
+unless it involves the invasion of a legally protected interest, the
+violation of a right. "The risk reasonably to be perceived defines the
+duty to be obeyed." Because the guards could not reasonably have foreseen
+any harm to Mrs. Palsgraf, standing far away, from the seemingly harmless
+act of helping a man with a package, there was no wrong to her, and hence
+no liability.
+
+Judge Andrews dissented, arguing that a defendant who acts negligently
+owes a duty to everyone, and that the question of liability to a
+particular plaintiff is one of proximate cause — whether the injury is so
+connected to the negligent act, by a natural and continuous sequence, that
+the law is willing to hold the actor responsible.

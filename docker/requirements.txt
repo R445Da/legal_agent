@@ -1,0 +1,22 @@
+# Image dependency set for the Streamlit workbench.
+#
+# Pins that must not drift — the baked seed database depends on them:
+#   pgserver==0.1.4   bundles PostgreSQL 16; the seed dump was taken from 16
+#   fastembed==0.8.0  the seed's chunk vectors were produced with this version's
+#                     pooling for the MiniLM model; query-time embeddings must
+#                     match or retrieval quality collapses
+#
+streamlit
+fastapi
+uvicorn[standard]
+pydantic
+sqlalchemy[asyncio]
+asyncpg
+pgvector
+python-dotenv
+httpx
+anthropic
+openai
+faster-whisper           # local speech-to-text; the Groq Whisper path needs no model
+pgserver==0.1.4
+fastembed==0.8.0

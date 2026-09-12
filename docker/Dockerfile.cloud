@@ -1,0 +1,96 @@
+# syntax=docker/dockerfile:1
+#
+# Legal RAG — the cloud image. Builds unchanged on x86 and ARM64.
+#
+# Two differences from docker/Dockerfile, and both come from the same fact:
+# a cloud container has no durable local disk.
+#
+#   1. NO pgserver.  The embedded Postgres has no linux-aarch64 wheel (so it
+#      cannot build on Oracle's free ARM instances at all) and its cluster is
+#      lost on every restart of an ephemeral container. DATABASE_URL must point
+#      at a managed Postgres with pgvector — Supabase, Neon, Oracle ADB.
+#   2. Models are fetched at BUILD time by the host doing the build, not by you.
+#      On Hugging Face Spaces that is HF's own network pulling from HF's own CDN;
+#      on Oracle it is a datacenter link. Either way ~1.4 GB never crosses your
+#      home connection. The image is bigger, but the build is somebody else's
+#      bandwidth and the container then needs no network for retrieval.
+#
+# Build (on the server, not locally):
+#   docker build -f docker/Dockerfile.cloud -t legal-rag:cloud .
+#
+# Hugging Face Spaces sets PORT=7860; everything else defaults to 8501.
+
+FROM python:3.12-slim AS builder
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY docker/requirements-cloud.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
+
+# ----------------------------------------------------------------------------- #
+FROM python:3.12-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# HF Spaces runs containers as uid 1000; matching it keeps the cache writable.
+RUN useradd --create-home --uid 1000 app
+
+COPY --from=builder --chown=app:app /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    HF_HUB_DISABLE_XET=1 \
+    FASTEMBED_CACHE_DIR=/opt/models \
+    FASTEMBED_CACHE_PATH=/opt/models \
+    HOME=/home/app
+
+RUN mkdir -p /opt/models && chown -R app:app /opt/models
+
+WORKDIR /app
+USER app
+
+# ~1.4 GB, pulled by the build host. Skip with --build-arg BAKE_MODELS=0 to get
+# a ~700 MB image that downloads them on first query instead.
+ARG BAKE_MODELS=1
+RUN if [ "$BAKE_MODELS" = "1" ]; then python -c "\
+from fastembed import TextEmbedding; \
+from fastembed.rerank.cross_encoder import TextCrossEncoder; \
+TextEmbedding(model_name='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', cache_dir='/opt/models'); \
+TextCrossEncoder(model_name='jinaai/jina-reranker-v2-base-multilingual', cache_dir='/opt/models')"; fi
+
+COPY --chown=app:app app/ ./app/
+COPY --chown=app:app scripts/ ./scripts/
+COPY --chown=app:app .streamlit/ ./.streamlit/
+COPY --chown=app:app streamlit_app.py ./
+COPY --chown=app:app docker/entrypoint-cloud.sh ./docker/
+
+# Retrieval settings must match the vectors in the database — see the startup
+# guard in app/db/engine.py, which refuses to run on a mismatch.
+ENV EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 \
+    EMBEDDING_DIM=384 \
+    EMBEDDING_PREFIXES=0 \
+    HYBRID=1 RERANK=1 \
+    RERANK_MODEL=jinaai/jina-reranker-v2-base-multilingual \
+    RETRIEVE_CANDIDATES=30 RERANK_TOP=8 RRF_LEX_WEIGHT=0.7 TS_CONFIG=simple \
+    STT=1 WHISPER_LANG=fa \
+    CORS_ORIGINS=* \
+    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
+    STREAMLIT_SERVER_HEADLESS=true \
+    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+
+# No LLM_PROVIDER default on purpose. A datacenter IP cannot reach Groq (its
+# edge blocks hosting ranges), so a baked-in Groq default would ship an image
+# that fails on first message. Set it explicitly at run time:
+#   anthropic + claude-opus-5   — works from any datacenter
+#   local + qwen2.5:7b          — needs an Ollama reachable at LOCAL_LLM_URL
+
+EXPOSE 8501 7860
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=60s --retries=6 \
+    CMD curl -fsS "http://localhost:${PORT:-8501}/_stcore/health" || exit 1
+
+ENTRYPOINT ["./docker/entrypoint-cloud.sh"]

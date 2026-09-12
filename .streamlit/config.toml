@@ -1,0 +1,24 @@
+# Streamlit's own theme.
+#
+# This matters more than it looks: without it Streamlit follows the operating
+# system, and on a machine set to dark mode it renders every widget's text in
+# near-white (#fafafa). Combined with a light page background that makes metric
+# values and labels invisible — the "numbers I can't see" bug.
+#
+# Pinning the base here makes Streamlit's widget internals predictable. The
+# in-app light/dark switch in app/ui/theme.py then repaints on top of a known
+# starting point instead of a guess.
+
+[theme]
+base = "light"
+primaryColor = "#0f766e"
+backgroundColor = "#f6f7f9"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#1b2430"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+
+[server]
+runOnSave = true

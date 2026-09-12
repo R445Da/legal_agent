@@ -1,0 +1,80 @@
+name: legal-rag
+
+# The app image carries Postgres + pgvector, the retrieval models, and a seed
+# corpus, so the base stack is one container. The chat model is remote (Groq)
+# by default.
+#
+#   1. cp .env.docker.example .env.docker   &&   put your GROQ_API_KEY in it
+#   2. docker compose up --build
+#   3. open http://localhost:8501
+#
+# To run the chat model locally instead — no Groq key, no network — bring up the
+# `local` profile and point .env.docker at it. See docker/README.md ("Fully
+# local") and EXPORT.md.
+#
+#   docker compose --profile local up
+#
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: legal-rag:latest
+    ports:
+      - "${APP_PORT:-8501}:8501"
+    env_file:
+      - .env.docker            # GROQ_API_KEY and any tunables you want to override
+    environment:
+      # container-specific — these win over .env.docker
+      DATABASE_URL: embedded
+      PG_DATA_DIR: /data/pgdata
+      # Where the app looks for Ollama. Harmless when LLM_PROVIDER is not
+      # `local`; when it is, this is the sibling service, not localhost.
+      LOCAL_LLM_URL: http://ollama:11434
+    volumes:
+      - pgdata:/data/pgdata    # the embedded Postgres cluster (seeded on first run)
+      - hfcache:/home/app/.cache  # faster-whisper etc. downloaded at run time
+    shm_size: "256m"           # headroom for pgvector index builds
+    restart: unless-stopped
+
+  # Local chat model. Opt-in: nothing starts it unless you ask for the profile,
+  # so the default Groq path stays a single container.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local"]
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    restart: unless-stopped
+    # --- GPU (NVIDIA + nvidia-container-toolkit on the target machine) --------
+    # Worth it here, unlike the Groq path: the generation model is now local.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # One-shot: pre-pull the local chat model so the target machine works offline
+  # on first boot.
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["pull"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    volumes:
+      - ollama-models:/root/.ollama
+    # One list element, not a folded string: compose word-splits a string
+    # `command` into separate argv entries, and `sh -c` would then receive only
+    # the first word as its script.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'until ollama list >/dev/null 2>&1; do sleep 1; done; ollama pull "${OLLAMA_PULL_MODEL:-qwen2.5:3b}"'
+    restart: "no"
+
+volumes:
+  pgdata:
+  hfcache:
+  ollama-models:
