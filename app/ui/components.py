@@ -135,6 +135,65 @@ def usage_caption(*, model: str, input_tokens=None, output_tokens=None, cache_re
     st.caption(" · ".join(bits) + " توکن")
 
 
+def similar_cases_panel(
+    items: list[dict] | None, lessons: dict | None = None, advice: str | None = None,
+    *, key_prefix: str = "", offset: int = 0,
+) -> str | None:
+    """«پرونده‌های مشابه در بایگانی»: each case as a clickable row with its
+    match bar and the reasons it resembles the question, the outcome tally,
+    and the comparative paragraph. Returns the case number that was clicked."""
+    if not items:
+        return None
+    from app.ui.theme import chips
+
+    clicked = None
+    with st.expander(f"پرونده‌های مشابه در بایگانی ({fa_num(len(items))})", expanded=True):
+        if lessons and lessons.get("summary"):
+            st.caption("سرنوشت پرونده‌های مشابه: " + lessons["summary"])
+        rowlist_start()
+        for i, c in enumerate(items, offset + 1):
+            score = c.get("score") or 0.0
+            pct = max(0, min(100, round(float(score) * 100 / 1.5)))
+            head = f"[{fa_num(i)}] {c.get('title') or c.get('case_number')}"
+            line1 = (f"شماره {fa_num(c.get('case_number', ''))} · {c.get('case_type') or '—'} · "
+                     f"{c.get('status_fa') or ''} · شباهت {fa_num(pct)}٪")
+            line2 = (c.get("outcome") or "")[:110] or None
+            if row(head, line1, line2, key=f"sim_{key_prefix}_{i}_{c.get('id')}"):
+                clicked = c.get("case_number")
+            why = c.get("why") or []
+            if why:
+                st.markdown(chips(why[:4], teal=True), unsafe_allow_html=True)
+            for path in (c.get("path") or [])[:2]:
+                crumbs = []
+                for node in path:
+                    if "relation" in node and "type" not in node:
+                        crumbs.append(f"—{esc(node.get('relation_fa', ''))}→")
+                    else:
+                        crumbs.append(esc(node.get("label") or node.get("id", "")[:8]))
+                st.markdown(f"<div class='meta mono' style='direction:rtl'>{' '.join(crumbs)}</div>",
+                            unsafe_allow_html=True)
+        if lessons:
+            cols = st.columns(2)
+            with cols[0]:
+                st.markdown("<div class='meta'><b>چه چیزی جواب داد</b></div>", unsafe_allow_html=True)
+                for item in (lessons.get("worked") or [])[:4]:
+                    st.markdown(f"<div class='meta'>✓ {esc(item.get('case_number', ''))}"
+                                f"{' — ' + esc(item['point']) if item.get('point') else ''}</div>", unsafe_allow_html=True)
+                if not lessons.get("worked"):
+                    st.markdown("<div class='meta'>—</div>", unsafe_allow_html=True)
+            with cols[1]:
+                st.markdown("<div class='meta'><b>چه چیزی جواب نداد</b></div>", unsafe_allow_html=True)
+                for item in (lessons.get("failed") or [])[:4]:
+                    st.markdown(f"<div class='meta'>✕ {esc(item.get('case_number', ''))}"
+                                f"{' — ' + esc(item['point']) if item.get('point') else ''}</div>", unsafe_allow_html=True)
+                if not lessons.get("failed"):
+                    st.markdown("<div class='meta'>—</div>", unsafe_allow_html=True)
+        if advice:
+            st.markdown("<div class='meta' style='margin-top:8px'><b>تحلیل تطبیقی</b></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='answer'>{esc(advice)}</div>", unsafe_allow_html=True)
+    return clicked
+
+
 def error_box(error: Exception) -> None:
     """Provider errors carry the actionable detail (truncation, missing key,
     unreachable gateway) — show the message, not a stack trace."""

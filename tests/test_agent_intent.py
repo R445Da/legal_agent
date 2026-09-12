@@ -36,7 +36,8 @@ async def test_law_and_cases_routes_carry_provenance(db_session):
 
     cases = await run_assistant(db_session, MockProvider(), "پرونده‌های مشابه جانشینی", force_intent="cases")
     assert cases["provenance"]["evidence"] and cases["provenance"]["evidence"][0]["kind"] == "case"
-    assert cases["provenance"]["usage"]["calls"] == 1
+    # one call for the answer, one for the comparative advice over similar cases
+    assert cases["provenance"]["usage"]["calls"] == 2
 
 
 async def test_workflow_step_payload_carries_usage(db_session):

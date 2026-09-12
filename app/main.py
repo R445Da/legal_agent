@@ -932,6 +932,34 @@ async def patch_case(case_id: str, patch: dict = Body(...)):
         return row
 
 
+@app.get("/cases/{case_id}/similar", dependencies=auth)
+async def case_similar(case_id: str, top_k: int = Query(default=5, ge=1, le=20)):
+    """Cases resembling this one — shared articles, parties, court, labels,
+    prior SIMILAR_TO links — each with the reasons and the graph path."""
+    from app.rag import similar
+
+    async with SessionLocal() as session:
+        case = await casebase.get_case(session, case_id)
+        if not case:
+            raise HTTPException(404, "No such case")
+        items = await similar.similar_cases(
+            session, question=f"{case.get('title') or ''} {case.get('summary') or ''}",
+            anchor_case_id=case["id"], top_k=top_k,
+        )
+        return {"case": {"id": case["id"], "case_number": case["case_number"], "title": case["title"]},
+                "similar": items, "lessons": similar.outcome_lessons(items)}
+
+
+@app.get("/graph/expand", dependencies=auth)
+async def graph_expand(node_type: str, node_id: str, depth: int = Query(default=2, ge=1, le=3)):
+    """Cases connected to any node through shared articles, parties, courts or
+    labels, scored and explained (the model's `graph_expand` tool)."""
+    from app.rag import similar
+
+    async with SessionLocal() as session:
+        return await similar.expand_for_tool(session, node_type, node_id, depth=depth)
+
+
 @app.get("/cases/{case_id}/graph", dependencies=auth)
 async def case_graph(case_id: str, depth: int = 1, format: str = "json"):
     async with SessionLocal() as session:

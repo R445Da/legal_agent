@@ -48,6 +48,13 @@ def main() -> int:
         print(f"tool       {row.get('tool'):<16} {row.get('summary')}   evidence {row.get('evidence_ns')}   {row.get('ms')} ms")
     for item in prov.get("evidence") or []:
         print(f"evidence   [{item.get('n')}] {item.get('label')}")
+    for c in data.get("similar_cases") or []:
+        why = "؛ ".join(c.get("why") or [])
+        print(f"similar    {c.get('case_number')}  score {c.get('score')}  {(c.get('outcome') or '')[:50]}  ← {why}")
+    if data.get("lessons"):
+        print(f"lessons    {data['lessons'].get('summary')}")
+    if data.get("advice"):
+        print(f"advice     {data['advice'][:200].replace(chr(10), ' ')}")
     print(f"grounding  {grounding.get('status')}   coverage {grounding.get('coverage')}   "
           f"cited {grounding.get('cited')}   invalid {grounding.get('invalid')}")
     print(f"usage      {prov.get('usage')}")

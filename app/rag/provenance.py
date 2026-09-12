@@ -117,13 +117,15 @@ def evidence_from_refs(refs: list[dict]) -> list[dict]:
     ]
 
 
-def evidence_from_cases(cases: list[dict]) -> list[dict]:
-    """Case records as `casebase.answer_case_question` numbers them."""
+def evidence_from_cases(cases: list[dict], *, offset: int = 0) -> list[dict]:
+    """Case records as `casebase.answer_case_question` numbers them; `offset`
+    continues an existing sequence (the similar-case stage after the articles)."""
     return [
         {"n": i, "kind": "case", "id": str(c.get("id")), "cite": c.get("case_number"),
          "case_number": c.get("case_number"), "title": c.get("title"),
-         "score": c.get("score"), "text": (c.get("outcome") or c.get("summary") or "")[:400]}
-        for i, c in enumerate(cases or [], 1)
+         "score": c.get("score"), "text": (c.get("outcome") or c.get("summary") or "")[:400],
+         **({"why": c["why"]} if c.get("why") else {})}
+        for i, c in enumerate(cases or [], offset + 1)
     ]
 
 

@@ -36,6 +36,8 @@ check "eval"            '"metrics"'            "${AUTH[@]}" -X POST "$BASE/eval"
       -H 'content-type: application/json' -d '{"top_k":5}'
 check "assistant law + provenance" '"provenance"' "${AUTH[@]}" -X POST "$BASE/assistant" \
       -H 'content-type: application/json' -d '{"intent":"law","text":"ماده ۳۰ قانون بیمه چه می‌گوید؟"}'
+check "assistant law + similar cases" '"similar_cases"' "${AUTH[@]}" -X POST "$BASE/assistant" \
+      -H 'content-type: application/json' -d '{"intent":"law","text":"ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟"}'
 check "assistant agent"  '"tool_trail"'         "${AUTH[@]}" -X POST "$BASE/assistant" \
       -H 'content-type: application/json' -d '{"intent":"agent","text":"پرونده‌های بازیافت از رانندهٔ مقصر طبق ماده ۱۶ چطور تمام شده‌اند؟"}'
 check "answers"         '"answers"'            "${AUTH[@]}" "$BASE/answers?limit=5"

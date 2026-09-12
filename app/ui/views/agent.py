@@ -24,7 +24,7 @@ from app.llm.meter import usage_of
 from app.rag import conversation
 from app.rag import provenance as prov
 from app.rag import runs, transcribe as stt, workflow
-from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route
+from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route, similar_stage
 from app.rag.ingest import get_document
 from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
@@ -214,12 +214,19 @@ def _answer_from_archive(cfg: dict, text: str) -> None:
             "استدلال» را کم کنید."
         )
 
+    res = {
+        "answer": text_out, "contexts": contexts, "model": final.model if final else cfg["model_id"],
+        "latency_ms": final.latency_ms if final else None, "usage": usage_of([final]) if final else {},
+        "steps": [],
+    }
+    extra = _similar_after(cfg, "query", text, res)
+    _show_similar(extra, offset=len(contexts), key_prefix="live_query")
     block = prov.build_provenance(
         intent="query", provider=getattr(_active_llm(cfg), "name", None),
-        model=final.model if final else cfg["model_id"],
-        evidence=prov.evidence_from_contexts(contexts),
-        usage=usage_of([final]) if final else {}, answer=text_out,
-        latency_ms=final.latency_ms if final else None,
+        model=res["model"],
+        evidence=prov.evidence_from_contexts(contexts) + list(res.get("similar_evidence") or []),
+        usage=res["usage"], answer=text_out + ("\n\n" + res["advice"] if res.get("advice") else ""),
+        latency_ms=res["latency_ms"],
     )
     _persist_answer("query", text, text_out, block, model=final.model if final else None)
     components.provenance_panel(block, key_prefix="live_query")
@@ -228,10 +235,37 @@ def _answer_from_archive(cfg: dict, text: str) -> None:
         "assistant", intent="query", text=text_out,
         reasoning="".join(thoughts) or None,
         contexts=contexts, trace=trace,
-        model=final.model if final else cfg["model_id"],
-        latency_ms=final.latency_ms if final else None,
-        provenance=block,
+        model=res["model"],
+        latency_ms=res["latency_ms"],
+        provenance=block, **extra,
     )
+
+
+def _similar_after(cfg: dict, intent: str, question: str, res: dict) -> dict:
+    """Run the similar-case stage on a finished answer (in place) and return
+    the keys worth keeping on the chat message."""
+    async def _go():
+        async with session() as s:
+            await similar_stage(s, _active_llm(cfg), intent, question, res)
+
+    try:
+        with st.spinner("در جستجوی پرونده‌های مشابه در گراف…"):
+            aio.run(_go())
+    except Exception as error:  # noqa: BLE001 — the answer stands without it
+        res.setdefault("steps", []).append({"name": "پرونده‌های مشابه", "detail": f"ناموفق: {error}"[:160]})
+    return {k: res[k] for k in ("similar_cases", "lessons", "advice") if res.get(k)}
+
+
+def _show_similar(message: dict, *, offset: int, key_prefix: str) -> None:
+    """Draw the similar-case panel; a click opens the case in «پرونده‌ها»."""
+    clicked = components.similar_cases_panel(
+        message.get("similar_cases"), message.get("lessons"), message.get("advice"),
+        key_prefix=key_prefix, offset=offset,
+    )
+    if clicked:
+        st.session_state["open_case"] = clicked
+        st.session_state["view"] = "cases"
+        st.rerun()
 
 
 def _persist_answer(intent: str, question: str, answer: str, block: dict, *, model: str | None) -> None:
@@ -998,6 +1032,9 @@ def _render(cfg: dict, message: dict, index: int) -> None:
                         st.session_state["open_case"] = c.get("case_number")
                         st.session_state["view"] = "cases"
                         st.rerun()
+        if message.get("similar_cases"):
+            offset = len(message.get("law_refs") or message.get("case_hits") or message.get("contexts") or [])
+            _show_similar(message, offset=offset, key_prefix=f"history_{index}")
         if message.get("stats"):
             with st.expander("دادهٔ خام"):
                 st.json(message["stats"])
@@ -1121,18 +1158,21 @@ def _answer_from_laws(cfg: dict, text: str) -> None:
     async def _go():
         async with session() as s:
             res = await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await similar_stage(s, _active_llm(cfg), "law", text, res)
             await attach_provenance(s, _active_llm(cfg), "law", text, res, source="ui")
             return res
 
-    with st.spinner("در حال جستجو در پایگاه قوانین…"):
+    with st.spinner("در حال جستجو در پایگاه قوانین و پرونده‌های مشابه…"):
         result = aio.run(_go())
     components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    _show_similar(result, offset=len(result.get("refs") or []), key_prefix="live_law")
     components.provenance_panel(result.get("provenance"), key_prefix="live_law")
     components.steps_panel(result.get("steps", []))
     _say("assistant", intent="law", text=result.get("answer", ""), law_refs=result.get("refs", []),
          question=text, model=result.get("model"), provenance=result.get("provenance"),
-         reasoning=result.get("reasoning"))
+         reasoning=result.get("reasoning"),
+         **{k: result[k] for k in ("similar_cases", "lessons", "advice") if result.get(k)})
 
 
 def _answer_from_cases(cfg: dict, text: str) -> None:
@@ -1142,6 +1182,7 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
     async def _go():
         async with session() as s:
             res = await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await similar_stage(s, _active_llm(cfg), "cases", text, res)
             await attach_provenance(s, _active_llm(cfg), "cases", text, res, source="ui")
             return res
 
@@ -1149,6 +1190,7 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
         result = aio.run(_go())
     components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    _show_similar(result, offset=len(result.get("cases") or []), key_prefix="live_cases")
     components.provenance_panel(result.get("provenance"), key_prefix="live_cases")
     components.steps_panel(result.get("steps", []))
     hits = [
@@ -1156,7 +1198,8 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
         for c in result.get("cases", [])
     ]
     _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"),
-         provenance=result.get("provenance"), reasoning=result.get("reasoning"))
+         provenance=result.get("provenance"), reasoning=result.get("reasoning"),
+         **{k: result[k] for k in ("similar_cases", "lessons", "advice") if result.get(k)})
 
 
 def _chat_reply(cfg: dict, text: str) -> None:
