@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.db.engine import create_schema, resolve_database_url
-from app.db.models import Chunk, Document, Entry, Label
+from app.db.models import AssistantAnswer, Chunk, Document, Entry, Label
 from app.llm import registry
 from app.llm.factory import get_llm_provider
 from app.rag.bench import NothingIndexed, run_bench
@@ -35,9 +35,10 @@ from app.rag.orchestrator import (
     find_related,
     run_assistant,
 )
-from app.rag.pipeline import SYSTEM_PROMPT, answer_question, build_prompt
+from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
 from app.rag import casebase, catalog, graph, lawbase
+from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
 
@@ -130,6 +131,8 @@ class AskResponse(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     steps: list[dict] = []  # pipeline trace: [{name, detail, ms}]
+    provenance: dict | None = None  # evidence, citation check, usage (app/rag/provenance.py)
+    answer_id: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -365,7 +368,18 @@ async def ask(req: AskRequest):
             session, llm, req.question, top_k=req.top_k,
             collection=req.collection, filters=req.filters,
         )
-        return AskResponse(**result.__dict__)
+        evidence = prov.evidence_from_contexts(result.contexts)
+        block = prov.build_provenance(
+            intent="query", provider=llm.name, model=result.model, evidence=evidence,
+            usage={"calls": 1, "input_tokens": result.input_tokens or 0,
+                   "output_tokens": result.output_tokens or 0},
+            answer=result.answer, latency_ms=result.latency_ms,
+        )
+        answer_id = await prov.persist_answer(
+            session, intent="query", question=req.question, answer=result.answer,
+            provenance=block, model=result.model,
+        )
+        return AskResponse(**result.__dict__, provenance=block, answer_id=answer_id)
 
 
 @app.post("/search", response_model=SearchResponse, dependencies=auth)
@@ -640,7 +654,8 @@ async def document_detail(document_id: str):
 # --------------------------------------------------------------------------- #
 class AssistantRequest(BaseModel):
     text: str
-    intent: str | None = None  # "query" | "archive" | "analytics" to skip the router
+    # query | law | cases | agent | archive | analytics | chat — skips the router.
+    intent: str | None = None
     model: str | None = None
 
 
@@ -672,6 +687,28 @@ async def assistant_commit(req: CommitRequest):
             "document_id": str(entry.document_id) if entry.document_id else None,
             "related_ids": entry.related_ids,
         }
+
+
+@app.get("/answers", dependencies=auth)
+async def answers_list(
+    limit: int = Query(default=50, ge=1, le=500), intent: str | None = None,
+):
+    """Answered questions with their provenance blocks, newest first."""
+    async with SessionLocal() as session:
+        query = select(AssistantAnswer).order_by(AssistantAnswer.created_at.desc()).limit(limit)
+        if intent:
+            query = query.where(AssistantAnswer.intent == intent)
+        rows = (await session.execute(query)).scalars().all()
+    return {"answers": [prov.answer_view(r) for r in rows]}
+
+
+@app.get("/answers/{answer_id}", dependencies=auth)
+async def answers_detail(answer_id: str):
+    async with SessionLocal() as session:
+        row = await session.get(AssistantAnswer, answer_id)
+    if row is None:
+        raise HTTPException(404, "No such answer")
+    return prov.answer_view(row)
 
 
 @app.get("/stats", dependencies=auth)

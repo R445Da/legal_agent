@@ -238,8 +238,11 @@ async def answer_law_question(
         f"Articles:\n{excerpts}\n\nQuestion: {question}\n\nAnswer in Persian, citing [n].",
         system=_LAW_SYSTEM, max_tokens=max_tokens, reasoning_effort="low",
     )
+    from app.llm.meter import usage_of
+
     return {
         "answer": resp.text, "refs": refs, "model": resp.model, "latency_ms": resp.latency_ms,
+        "usage": usage_of([resp]), "reasoning": resp.reasoning,
         "steps": [
             {"name": "جستجوی قوانین", "detail": f"{len(refs)} ماده از پایگاه قوانین", "ms": retrieve_ms},
             {"name": "پاسخ با استناد به مواد", "detail": f"مدل {resp.model}",

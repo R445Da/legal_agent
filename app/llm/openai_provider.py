@@ -3,7 +3,7 @@ import json
 import os
 import time
 
-from .base import LLMProvider, LLMResponse
+from .base import LLMProvider, LLMResponse, strict_schema
 
 # A hosted endpoint behind Cloudflare (Groq especially) geo-blocks some networks
 # in *flapping* windows: the same key gets 403 "Access denied. Please check your
@@ -13,6 +13,8 @@ from .base import LLMProvider, LLMResponse
 # actually is.
 _RETRIES = 3
 _BACKOFF = (1.0, 3.0, 6.0)
+
+_TOOL_CHOICE = {"auto": "auto", "none": "none", "any": "required"}
 
 
 async def with_transient_retry(call, model: str):
@@ -76,8 +78,45 @@ def _normalise_tool_calls(raw) -> list[dict]:
     return out
 
 
+def transcript_messages(system: str | None, transcript: list[dict]) -> list[dict]:
+    """The neutral transcript as OpenAI chat messages.
+
+    Assistant turns are rebuilt from `content` + `tool_calls` rather than
+    replayed from `turn`: reasoning fields (`reasoning`, `reasoning_content`)
+    must never be sent back — Groq rejects them.
+    """
+    messages: list[dict] = [{"role": "system", "content": system}] if system else []
+    for message in transcript:
+        role = message.get("role")
+        if role == "user":
+            messages.append({"role": "user", "content": str(message.get("content", ""))})
+        elif role == "assistant":
+            entry: dict = {"role": "assistant", "content": message.get("content") or None}
+            calls = message.get("tool_calls") or []
+            if calls:
+                entry["tool_calls"] = [
+                    {"id": str(c.get("id")), "type": "function",
+                     "function": {"name": c["name"],
+                                  "arguments": json.dumps(c.get("arguments") or {}, ensure_ascii=False)}}
+                    for c in calls
+                ]
+            messages.append(entry)
+        elif role == "tool":
+            messages.append({"role": "tool", "tool_call_id": str(message.get("tool_call_id")),
+                             "content": str(message.get("content") or "")})
+    return messages
+
+
 class OpenAIProvider(LLMProvider):
     name = "openai"
+    supports_native_tools = True
+    supports_json_schema = True
+    # OpenAI caches long prefixes automatically; there is nothing to mark, but
+    # `cache_read_tokens` is still reported when the endpoint returns it.
+    supports_prompt_cache = False
+
+    _token_cap = "max_tokens"       # Groq renames it
+    _strict_functions = True        # Groq does not accept `strict`
 
     def __init__(
         self,
@@ -101,26 +140,96 @@ class OpenAIProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(self.api_key)
 
-    def _request(self, prompt, system, max_tokens, temperature, json_mode, reasoning_effort):
-        """The request body, shared by generate() and stream(). Subclasses
-        override this where their API differs — Groq renames the token cap and
-        adds per-model reasoning switches."""
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+    def _effort_ok(self) -> bool:
+        """Whether `reasoning_effort` is legal for this model (Groq gates per model)."""
+        return True
+
+    def _tool_defs(self, tools: list[dict]) -> list[dict]:
+        out = []
+        for t in sorted(tools, key=lambda t: t["name"]):
+            params = t.get("parameters", {"type": "object", "properties": {}})
+            strict = self._strict_functions and bool(t.get("strict", True))
+            fn = {"name": t["name"], "description": t.get("description", ""),
+                  "parameters": strict_schema(params) if strict else params}
+            if strict:
+                fn["strict"] = True
+            out.append({"type": "function", "function": fn})
+        return out
+
+    def _body(self, messages, max_tokens, temperature, json_mode, tools,
+              tool_choice, reasoning_effort, json_schema) -> dict:
+        """The request body, shared by generate(), chat() and stream()."""
         body = {
             "model": self.model,
-            "max_tokens": max_tokens,
+            self._token_cap: max_tokens,
             "temperature": temperature,
             "messages": messages,
         }
-        if json_mode:
+        if tools:
+            body["tools"] = self._tool_defs(tools)
+            body["tool_choice"] = _TOOL_CHOICE.get(tool_choice, "auto")
+        elif json_schema:
+            body["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "out", "schema": json_schema, "strict": True}}
+            body["messages"] = ensure_json_hint(messages)
+        elif json_mode:
             body["response_format"] = {"type": "json_object"}
             body["messages"] = ensure_json_hint(messages)
-        if reasoning_effort:
+        # A gateway may be fronting a reasoning model; pass the effort through
+        # only when the caller asked for it (knobs.py decides whether the UI
+        # even offers the control for this model id).
+        if reasoning_effort and self._effort_ok():
             body["reasoning_effort"] = reasoning_effort
         return body
+
+    async def _create(self, body: dict):
+        client = self._get_client()
+        return await with_transient_retry(
+            lambda: client.chat.completions.create(**body), self.model
+        )
+
+    def _parse(self, resp, start: float, max_tokens: int) -> LLMResponse:
+        latency_ms = (time.perf_counter() - start) * 1000
+
+        # Gateways (9router's `combo`, content filters, routing failures) can
+        # return a 200 with choices=null or an empty list — guard rather than
+        # crash with a bare TypeError.
+        choice = (resp.choices or [None])[0]
+        if choice is None:
+            raise RuntimeError(f"{self.model}: gateway returned no choices")
+        message = choice.message
+        text = (message.content if message else None) or ""
+        tool_calls = _normalise_tool_calls(getattr(message, "tool_calls", None))
+
+        if not text and not tool_calls and choice.finish_reason == "length":
+            spent = resp.usage.completion_tokens if resp.usage else max_tokens
+            raise RuntimeError(
+                f"{self.model}: truncated at {self._token_cap} ({spent} tokens) before "
+                "emitting any answer — a reasoning model spent the whole budget "
+                "thinking. Raise max tokens, or lower reasoning effort."
+            )
+
+        # Reasoning gateways disagree on the field name; check both.
+        reasoning = None
+        if message is not None:
+            reasoning = getattr(message, "reasoning", None) or getattr(
+                message, "reasoning_content", None
+            )
+        usage = resp.usage
+        details = getattr(usage, "prompt_tokens_details", None) if usage else None
+        finish = choice.finish_reason
+        return LLMResponse(
+            text=text,
+            model=self.model,
+            input_tokens=usage.prompt_tokens if usage else None,
+            output_tokens=usage.completion_tokens if usage else None,
+            latency_ms=latency_ms,
+            reasoning=reasoning,
+            tool_calls=tool_calls or None,
+            raw=resp.model_dump(),
+            stop_reason="tool_use" if tool_calls else finish,
+            cache_read_tokens=getattr(details, "cached_tokens", None) if details else None,
+        )
 
     async def stream(
         self,
@@ -140,7 +249,10 @@ class OpenAIProvider(LLMProvider):
         """
         client = self._get_client()
         start = time.perf_counter()
-        body = self._request(prompt, system, max_tokens, temperature, json_mode, reasoning_effort)
+        messages = ([{"role": "system", "content": system}] if system else []) + [
+            {"role": "user", "content": prompt}]
+        body = self._body(messages, max_tokens, temperature, json_mode, None, "auto",
+                          reasoning_effort, None)
 
         answer, thinking = [], []
         usage = None
@@ -165,6 +277,7 @@ class OpenAIProvider(LLMProvider):
                     answer.append(delta.content)
                     yield {"type": "answer", "delta": delta.content}
 
+        details = getattr(usage, "prompt_tokens_details", None) if usage else None
         yield {
             "type": "done",
             "response": LLMResponse(
@@ -175,6 +288,7 @@ class OpenAIProvider(LLMProvider):
                 latency_ms=(time.perf_counter() - start) * 1000,
                 reasoning="".join(thinking) or None,
                 raw={},
+                cache_read_tokens=getattr(details, "cached_tokens", None) if details else None,
             ),
         }
 
@@ -189,78 +303,34 @@ class OpenAIProvider(LLMProvider):
         tools: list[dict] | None = None,
         tool_choice: str = "auto",
         reasoning_effort: str | None = None,
+        json_schema: dict | None = None,
         **_ignored,
     ) -> LLMResponse:
-        client = self._get_client()
         start = time.perf_counter()
+        messages = ([{"role": "system", "content": system}] if system else []) + [
+            {"role": "user", "content": prompt}]
+        body = self._body(messages, max_tokens, temperature, json_mode, tools,
+                          tool_choice, reasoning_effort, json_schema)
+        resp = await self._create(body)
+        return self._parse(resp, start, max_tokens)
 
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
-
-        extra = {}
-        if json_mode and not tools:
-            extra["response_format"] = {"type": "json_object"}
-            messages = ensure_json_hint(messages)
-        if tools:
-            extra["tools"] = [
-                {"type": "function", "function": {
-                    "name": t["name"], "description": t.get("description", ""),
-                    "parameters": t.get("parameters", {"type": "object", "properties": {}}),
-                }}
-                for t in tools
-            ]
-            extra["tool_choice"] = tool_choice
-        # A gateway may be fronting a reasoning model; pass the effort through
-        # only when the caller asked for it (knobs.py decides whether the UI
-        # even offers the control for this model id).
-        if reasoning_effort:
-            extra["reasoning_effort"] = reasoning_effort
-        resp = await with_transient_retry(
-            lambda: client.chat.completions.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                messages=messages,
-                **extra,
-            ),
-            self.model,
-        )
-
-        latency_ms = (time.perf_counter() - start) * 1000
-
-        # Gateways (9router's `combo`, content filters, routing failures) can
-        # return a 200 with choices=null or an empty list — guard rather than
-        # crash with a bare TypeError.
-        choice = (resp.choices or [None])[0]
-        if choice is None:
-            raise RuntimeError(f"{self.model}: gateway returned no choices")
-        message = choice.message
-        text = (message.content if message else None) or ""
-
-        tool_calls = _normalise_tool_calls(getattr(message, "tool_calls", None))
-
-        if not text and not tool_calls and choice.finish_reason == "length":
-            raise RuntimeError(
-                f"{self.model}: response truncated at max_tokens before any text "
-                "(reasoning model spent the whole budget thinking) — raise max_tokens"
-            )
-
-        # Reasoning gateways disagree on the field name; check both.
-        reasoning = None
-        if message is not None:
-            reasoning = getattr(message, "reasoning", None) or getattr(
-                message, "reasoning_content", None
-            )
-
-        return LLMResponse(
-            text=text,
-            model=self.model,
-            input_tokens=resp.usage.prompt_tokens if resp.usage else None,
-            output_tokens=resp.usage.completion_tokens if resp.usage else None,
-            latency_ms=latency_ms,
-            reasoning=reasoning,
-            tool_calls=tool_calls or None,
-            raw=resp.model_dump(),
-        )
+    async def chat(
+        self,
+        messages: list[dict],
+        *,
+        system: str | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        json_schema: dict | None = None,
+        cache: bool = False,
+        json_mode: bool = False,
+        reasoning_effort: str | None = None,
+        **_ignored,
+    ) -> LLMResponse:
+        start = time.perf_counter()
+        body = self._body(transcript_messages(system, messages), max_tokens, temperature,
+                          json_mode, tools, tool_choice, reasoning_effort, json_schema)
+        resp = await self._create(body)
+        return self._parse(resp, start, max_tokens)

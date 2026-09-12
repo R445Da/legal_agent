@@ -104,12 +104,12 @@ async def main(args) -> int:
                 print(f"  عنوان     {e.title}")
                 print(f"  شماره     {ent.get('case_number') or '—'}")
                 print(f"  دادگاه    {ent.get('court') or '—'}")
-                print(f"  طرفین     " + "، ".join(
+                print("  طرفین     " + "، ".join(
                     f"{p.get('role')}: {p.get('name')}" for p in (e.parties or [])
                     if isinstance(p, dict)) or "—")
                 for ev in (e.events or []):
                     print(f"  رویداد    {ev.get('date','')} — {str(ev.get('description',''))[:60]}")
-                print(f"  برچسب‌ها   " + "، ".join(e.tags or []) or "—")
+                print("  برچسب‌ها   " + "، ".join(e.tags or []) or "—")
                 print(f"  مشابه‌ها   {len(e.related or [])} مورد")
 
     print(f"\n  {DIM}console: http://localhost:8000/runs/view?token=$API_TOKEN{OFF}")

@@ -3,7 +3,6 @@
 import streamlit as st
 
 from app.rag.catalog import COLLECTION_FA
-from app.ui import components
 from app.ui.theme import (
     case_id, chips, esc, fa_num, ledger, panel, stamp, timeline,
 )

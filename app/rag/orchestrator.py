@@ -32,12 +32,13 @@ from app.rag.retriever import retrieve_scored
 # The five things a message can be. `chat` and `unclear` are new: without them
 # the router's fallback default was `archive`, so any statement it could not
 # place became a proposed Entry — greetings, tasks, half-typed fragments and all.
-VALID_INTENTS = {"query", "law", "cases", "archive", "analytics", "chat", "unclear"}
+VALID_INTENTS = {"query", "law", "cases", "agent", "archive", "analytics", "chat", "unclear"}
 
 _INTENT_FA = {
     "query": "پرسش از اسناد",
     "law": "پرسش از قوانین",
     "cases": "جستجوی بایگانی پرونده‌ها",
+    "agent": "پژوهش عاملی",
     "archive": "ثبت مطلب جدید",
     "analytics": "آمار آرشیو",
     "chat": "گفت‌وگو",
@@ -449,8 +450,37 @@ async def corpus_stats(session: AsyncSession) -> dict:
 
 
 
+async def attach_provenance(
+    session: AsyncSession, llm: LLMProvider, intent: str, question: str, res: dict, *,
+    source: str = "api", persist: bool = True,
+) -> dict:
+    """Add the `provenance` block (and persist the answer) to a law / cases /
+    query result. The evidence is whatever that route numbered `[n]`."""
+    from app.rag import provenance as prov
+
+    if intent == "law":
+        evidence = prov.evidence_from_refs(res.get("refs") or [])
+    elif intent == "cases":
+        evidence = prov.evidence_from_cases(res.get("cases") or [])
+    else:
+        evidence = prov.evidence_from_contexts(res.get("contexts") or [])
+    block = prov.build_provenance(
+        intent=intent, provider=getattr(llm, "name", None), model=res.get("model"),
+        evidence=evidence, tool_trail=res.get("tool_log") or [], usage=res.get("usage") or {},
+        answer=res.get("answer") or "", latency_ms=res.get("latency_ms"),
+    )
+    res["provenance"] = block
+    if persist:
+        res["answer_id"] = await prov.persist_answer(
+            session, intent=intent, question=question, answer=res.get("answer") or "",
+            provenance=block, model=res.get("model"), source=source,
+        )
+    return block
+
+
 async def run_assistant(
-    session: AsyncSession, llm: LLMProvider, text: str, *, force_intent: str | None = None
+    session: AsyncSession, llm: LLMProvider, text: str, *, force_intent: str | None = None,
+    source: str = "api",
 ) -> dict:
     import time as _t
 
@@ -497,28 +527,42 @@ async def run_assistant(
             "steps": steps,
         }
 
+    if intent == "query" and os.environ.get("AGENT_FOR_QUERY", "0") == "1":
+        intent = "agent"
+
+    if intent == "agent":
+        from app.rag.agent import answer_with_tools
+
+        res = await answer_with_tools(session, llm, text, source=source)
+        return {"intent": "agent", **res, "steps": steps + res.get("steps", [])}
+
     if intent == "law":
         from app.rag.lawbase import answer_law_question
 
         res = await answer_law_question(session, llm, text)
+        await attach_provenance(session, llm, "law", text, res, source=source)
         return {"intent": "law", **res, "steps": steps + res.get("steps", [])}
 
     if intent == "cases":
         from app.rag.casebase import answer_case_question
 
         res = await answer_case_question(session, llm, text)
+        await attach_provenance(session, llm, "cases", text, res, source=source)
         return {"intent": "cases", **res, "steps": steps + res.get("steps", [])}
 
     if intent == "query":
-        res = await answer_question(session, llm, text, top_k=5)
-        return {
-            "intent": "query",
-            "answer": res.answer,
-            "contexts": res.contexts,
-            "model": res.model,
-            "latency_ms": res.latency_ms,
-            "steps": steps + res.steps,
+        rag = await answer_question(session, llm, text, top_k=5)
+        res = {
+            "answer": rag.answer,
+            "contexts": rag.contexts,
+            "model": rag.model,
+            "latency_ms": rag.latency_ms,
+            "usage": {"calls": 1, "input_tokens": rag.input_tokens or 0,
+                      "output_tokens": rag.output_tokens or 0, "latency_ms": round(rag.latency_ms or 0)},
+            "reasoning": rag.reasoning,
         }
+        await attach_provenance(session, llm, "query", text, res, source=source)
+        return {"intent": "query", **res, "steps": steps + rag.steps}
 
     if intent == "archive":
         _s = _t.perf_counter()

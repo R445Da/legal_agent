@@ -19,11 +19,11 @@ nothing may be written to the archive without that confirmation.
 import datetime as dt
 
 import streamlit as st
-from sqlalchemy import or_, select
 
-from app.db.models import Entry
+from app.llm.meter import usage_of
+from app.rag import provenance as prov
 from app.rag import runs, transcribe as stt, workflow
-from app.rag.orchestrator import _INTENT_FA, corpus_stats, route
+from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route
 from app.rag.ingest import get_document
 from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
@@ -31,7 +31,7 @@ from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
 from app.ui import aio, components, data
 from app.ui.resources import session
-from app.ui.theme import card, case_id, chips, esc, fa_num, kv, stamp
+from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
 _EXAMPLES = [
     "ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟",
@@ -213,12 +213,103 @@ def _answer_from_archive(cfg: dict, text: str) -> None:
             "استدلال» را کم کنید."
         )
 
+    block = prov.build_provenance(
+        intent="query", provider=getattr(_active_llm(cfg), "name", None),
+        model=final.model if final else cfg["model_id"],
+        evidence=prov.evidence_from_contexts(contexts),
+        usage=usage_of([final]) if final else {}, answer=text_out,
+        latency_ms=final.latency_ms if final else None,
+    )
+    _persist_answer("query", text, text_out, block, model=final.model if final else None)
+    components.provenance_panel(block, key_prefix="live_query")
+
     _say(
         "assistant", intent="query", text=text_out,
         reasoning="".join(thoughts) or None,
         contexts=contexts, trace=trace,
         model=final.model if final else cfg["model_id"],
         latency_ms=final.latency_ms if final else None,
+        provenance=block,
+    )
+
+
+def _persist_answer(intent: str, question: str, answer: str, block: dict, *, model: str | None) -> None:
+    """Record the answer + provenance; a storage hiccup must not lose the reply."""
+    async def _go():
+        async with session() as s:
+            return await prov.persist_answer(
+                s, intent=intent, question=question, answer=answer, provenance=block,
+                model=model, source="ui",
+            )
+    try:
+        aio.run(_go())
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+        pass
+
+
+def _answer_with_agent(cfg: dict, text: str) -> None:
+    """The «پژوهش عاملی» route: the model researches with the read-only tools,
+    each call shown as it happens, then answers from the numbered evidence."""
+    from app.rag.agent import AGENT_SYSTEM, steps_from
+    from app.rag.tools import EvidenceLedger, iter_with_tools
+
+    llm = _active_llm(cfg)
+    ledger = EvidenceLedger()
+    holder: dict = {}
+
+    async def _events():
+        async with session() as s:
+            async for event in iter_with_tools(
+                llm, s, f"Question: {text}", system=AGENT_SYSTEM, max_rounds=4,
+                max_tokens=cfg.get("max_tokens") or 1400, ledger=ledger,
+            ):
+                yield event
+
+    started = dt.datetime.now()
+    with st.status("عامل در حال پژوهش در آرشیو…", expanded=True) as status:
+        for event in aio.iterate(_events()):
+            kind = event["type"]
+            if kind == "round":
+                st.caption(f"دور {fa_num(event['round'])}")
+            elif kind == "tool_call":
+                args = "، ".join(f"{k}={v}" for k, v in (event.get("args") or {}).items() if v not in (None, ""))
+                st.markdown(
+                    f"<div class='kv'><span class='k mono'>{esc(event['tool'])}</span>"
+                    f"<span>{esc(args)}</span></div>", unsafe_allow_html=True,
+                )
+            elif kind == "tool_result":
+                mark = "⚠️" if event.get("error") else "✓"
+                st.caption(f"{mark} {event['summary']} · {fa_ms(event.get('ms'))}")
+            elif kind == "done":
+                holder["result"] = event["result"]
+        result = holder.get("result")
+        if result is None:
+            status.update(label="عامل پاسخی نداد", state="error")
+            return
+        status.update(
+            label=f"پژوهش تمام شد — {fa_num(len(result.tool_log))} فراخوانی، {fa_num(len(result.evidence))} شاهد",
+            state="complete",
+        )
+
+    total_ms = (dt.datetime.now() - started).total_seconds() * 1000
+    block = prov.build_provenance(
+        intent="agent", provider=getattr(llm, "name", None), model=result.model,
+        evidence=result.evidence, tool_trail=result.tool_log, usage=result.usage,
+        answer=result.text, latency_ms=total_ms,
+        extra={"loop": result.mode, "rounds": result.rounds},
+    )
+    _persist_answer("agent", text, result.text, block, model=result.model)
+
+    components.reasoning_panel(result.reasoning)
+    if result.text.strip():
+        st.markdown(f"<div class='answer'>{esc(result.text)}</div>", unsafe_allow_html=True)
+    else:
+        st.warning("عامل ابزارها را فراخواند اما پاسخی ننوشت. سقف توکن خروجی را بالا ببرید.")
+    components.provenance_panel(block, key_prefix="live_agent")
+    components.steps_panel(steps_from(result, round(total_ms)))
+    _say(
+        "assistant", intent="agent", text=result.text, reasoning=result.reasoning,
+        model=result.model, latency_ms=total_ms, provenance=block,
     )
 
 
@@ -796,7 +887,9 @@ def _render(cfg: dict, message: dict, index: int) -> None:
         if message.get("stats"):
             with st.expander("دادهٔ خام"):
                 st.json(message["stats"])
-        if message.get("model"):
+        if message.get("provenance"):
+            components.provenance_panel(message["provenance"], key_prefix=f"history_{index}")
+        elif message.get("model"):
             components.usage_caption(model=message["model"])
 
 
@@ -880,6 +973,8 @@ def _answer_pending(cfg: dict) -> None:
                 _answer_from_laws(cfg, text)
             elif intent == "cases":
                 _answer_from_cases(cfg, text)
+            elif intent == "agent":
+                _answer_with_agent(cfg, text)
             else:
                 _answer_from_archive(cfg, text)
         except Exception as error:  # noqa: BLE001
@@ -897,14 +992,19 @@ def _answer_from_laws(cfg: dict, text: str) -> None:
 
     async def _go():
         async with session() as s:
-            return await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            res = await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await attach_provenance(s, _active_llm(cfg), "law", text, res, source="ui")
+            return res
 
     with st.spinner("در حال جستجو در پایگاه قوانین…"):
         result = aio.run(_go())
+    components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    components.provenance_panel(result.get("provenance"), key_prefix="live_law")
     components.steps_panel(result.get("steps", []))
     _say("assistant", intent="law", text=result.get("answer", ""), law_refs=result.get("refs", []),
-         question=text, model=result.get("model"))
+         question=text, model=result.get("model"), provenance=result.get("provenance"),
+         reasoning=result.get("reasoning"))
 
 
 def _answer_from_cases(cfg: dict, text: str) -> None:
@@ -913,17 +1013,22 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
 
     async def _go():
         async with session() as s:
-            return await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            res = await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await attach_provenance(s, _active_llm(cfg), "cases", text, res, source="ui")
+            return res
 
     with st.spinner("در حال جستجو در بایگانی پرونده‌ها…"):
         result = aio.run(_go())
+    components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    components.provenance_panel(result.get("provenance"), key_prefix="live_cases")
     components.steps_panel(result.get("steps", []))
     hits = [
         {k: c.get(k) for k in ("id", "case_number", "title", "case_type", "insurance_line", "status_fa", "outcome")}
         for c in result.get("cases", [])
     ]
-    _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"))
+    _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"),
+         provenance=result.get("provenance"), reasoning=result.get("reasoning"))
 
 
 def _chat_reply(cfg: dict, text: str) -> None:
@@ -967,10 +1072,13 @@ def _controls(cfg: dict) -> None:
     left, right = st.columns(2)
     with left:
         st.selectbox(
-            "نوع پیام", ["auto", "query", "law", "cases", "archive", "analytics", "chat"],
+            "نوع پیام", ["auto", "query", "law", "cases", "agent", "archive", "analytics", "chat"],
             format_func=lambda k: "تشخیص خودکار" if k == "auto" else _INTENT_FA[k],
             key="agent_intent", label_visibility="collapsed",
-            help="به‌صورت پیش‌فرض سامانه خودش تشخیص می‌دهد؛ می‌توانید دستی تعیین کنید.",
+            help=(
+                "به‌صورت پیش‌فرض سامانه خودش تشخیص می‌دهد؛ می‌توانید دستی تعیین کنید. "
+                "«پژوهش عاملی»: مدل خودش با ابزارهای فقط‌خواندنی در آرشیو جستجو می‌کند."
+            ),
         )
     with right:
         st.selectbox(

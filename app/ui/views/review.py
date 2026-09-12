@@ -6,7 +6,6 @@ editing the entry's extracted fields, which is what the form below writes back.
 """
 
 import streamlit as st
-from sqlalchemy import select
 
 from app.db.models import Entry
 from app.rag import catalog

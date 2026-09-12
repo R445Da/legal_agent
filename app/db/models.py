@@ -458,3 +458,31 @@ class GraphEdge(Base):
         Index("ix_graph_dst", "dst_type", "dst_id"),
         Index("ix_graph_unique", "src_type", "src_id", "relation", "dst_type", "dst_id", unique=True),
     )
+
+
+# =========================================================================== #
+# v3 — answers with provenance
+# =========================================================================== #
+class AssistantAnswer(Base):
+    """One answered question, with what it rested on (`app/rag/provenance.py`).
+
+    `provenance` is the block the API and the chat show: numbered evidence,
+    the tool trail, the citation check, token usage. Kept per answer so a
+    demo can be replayed and a bad answer traced back to its evidence.
+    """
+
+    __tablename__ = "assistant_answers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source: Mapped[str] = mapped_column(String, default="api")      # api | ui | demo
+    intent: Mapped[str] = mapped_column(String, nullable=False)     # law | cases | query | agent
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True
+    )
+    provenance: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    __table_args__ = (Index("ix_assistant_answers_created", "created_at"),)

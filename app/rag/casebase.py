@@ -600,8 +600,11 @@ async def answer_case_question(
         "Case records:\n\n" + "\n\n".join(blocks) + f"\n\nQuestion: {question}\n\nAnswer in Persian, citing [n].",
         system=_CASE_SYSTEM, max_tokens=max_tokens, reasoning_effort="low",
     )
+    from app.llm.meter import usage_of
+
     return {
         "answer": resp.text, "cases": full, "model": resp.model, "latency_ms": resp.latency_ms,
+        "usage": usage_of([resp]), "reasoning": resp.reasoning,
         "steps": [
             {"name": "جستجوی بایگانی پرونده‌ها", "detail": f"{len(full)} پرونده با طرفین و مستندات", "ms": retrieve_ms},
             {"name": "پاسخ با استناد به پرونده‌ها", "detail": f"مدل {resp.model}",

@@ -546,6 +546,12 @@ small {{ color: var(--gray) !important; font-size: 12.6px !important; }}
 .intent-badge.unclear {{ color: var(--stampRed); background: var(--stampRedSoft); }}
 .intent-badge.law {{ color: var(--stampRed); background: var(--stampRedSoft); border-style: solid; }}
 .intent-badge.cases {{ color: var(--amber); background: var(--amberSoft); border-style: dashed; }}
+.intent-badge.agent {{ color: var(--gold); background: var(--goldSoft); border-style: double; }}
+/* Provenance bar under an answer: grounding stamp · coverage · evidence · tools. */
+.prov-bar {{
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 4px;
+  font-size: 12px; color: var(--gray); direction: rtl;
+}}
 .thinking {{
   font-size: 12px; color: var(--gray); background: var(--paper);
   border: 1px dashed var(--line); border-radius: 8px; padding: 8px 11px;

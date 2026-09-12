@@ -3,7 +3,7 @@
 import streamlit as st
 
 from app.ui import components
-from app.ui.theme import card, esc, fa_num
+from app.ui.theme import fa_num
 
 
 def render(cfg: dict, state: dict) -> None:

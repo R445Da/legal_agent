@@ -2,7 +2,65 @@
 
 import streamlit as st
 
-from app.ui.theme import card, esc, fa_num
+from app.ui.theme import card, esc, fa_num, stamp
+
+_GROUNDING_FA = {"ok": ("مستند", "teal"), "partial": ("استناد ناقص", "gold"),
+                 "unsupported": ("بدون استناد", "review")}
+
+
+def provenance_panel(prov: dict | None, *, key_prefix: str = "", expanded: bool = False) -> None:
+    """What the answer rests on: the citation check, the numbered evidence,
+    the tool trail and the token bill — one panel for every route."""
+    if not prov:
+        return
+    grounding = prov.get("grounding") or {}
+    status = grounding.get("status", "unsupported")
+    label, kind = _GROUNDING_FA.get(status, ("—", "gray"))
+    evidence = prov.get("evidence") or []
+    trail = prov.get("tool_trail") or []
+    usage = prov.get("usage") or {}
+    coverage = grounding.get("coverage")
+
+    bits = [stamp(label, kind)]
+    if coverage is not None:
+        bits.append(f"<span class='meta'>پوشش استناد {fa_num(round(coverage * 100))}٪</span>")
+    bits.append(f"<span class='meta'>{fa_num(len(evidence))} شاهد</span>")
+    if trail:
+        bits.append(f"<span class='meta'>{fa_num(len(trail))} فراخوانی ابزار</span>")
+    if usage.get("cache_read_tokens"):
+        bits.append(f"<span class='meta'>خواندن از حافظهٔ نهان {fa_num(usage['cache_read_tokens'])}</span>")
+    st.markdown("<div class='prov-bar'>" + " · ".join(bits) + "</div>", unsafe_allow_html=True)
+
+    with st.expander("شواهد و ردپای پاسخ", expanded=expanded):
+        if grounding.get("invalid"):
+            st.warning("ارجاع به شمارهٔ ناموجود: " + "، ".join(f"[{fa_num(n)}]" for n in grounding["invalid"]))
+        for item in evidence:
+            score = item.get("score")
+            head = f"[{fa_num(item.get('n', ''))}] {esc(item.get('label') or item.get('title') or '')}"
+            tail = f"{fa_num(f'{score:.2f}')}" if isinstance(score, (int, float)) else ""
+            st.markdown(f"<div class='kv'><span class='k'>{head}</span><span>{tail}</span></div>",
+                        unsafe_allow_html=True)
+        unsupported = grounding.get("unsupported_claims") or []
+        if unsupported:
+            st.markdown("<div class='meta' style='margin-top:6px'>جمله‌های بدون استناد:</div>", unsafe_allow_html=True)
+            for claim in unsupported[:6]:
+                st.markdown(f"<div class='meta'>• {esc(claim.get('text', ''))[:200]}</div>", unsafe_allow_html=True)
+        if trail:
+            st.markdown("<div class='meta' style='margin-top:6px'>ردپای ابزارها:</div>", unsafe_allow_html=True)
+            for row in trail:
+                ms = row.get("ms")
+                suffix = f" · {fa_num(ms)} میلی‌ثانیه" if ms is not None else ""
+                st.markdown(
+                    f"<div class='kv'><span class='k mono'>{esc(row.get('tool', ''))}{suffix}</span>"
+                    f"<span>{esc(row.get('summary', ''))}</span></div>",
+                    unsafe_allow_html=True,
+                )
+        if usage:
+            usage_caption(
+                model=prov.get("model") or "—", input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cache_read_tokens=usage.get("cache_read_tokens"),
+            )
 
 
 def reasoning_panel(text: str | None, *, key: str = "", expanded: bool = False) -> None:
@@ -66,12 +124,14 @@ def citations(
     return None
 
 
-def usage_caption(*, model: str, input_tokens=None, output_tokens=None) -> None:
+def usage_caption(*, model: str, input_tokens=None, output_tokens=None, cache_read_tokens=None) -> None:
     bits = [f"`{model}`"]
     if input_tokens is not None:
         bits.append(f"ورودی {fa_num(input_tokens)}")
     if output_tokens is not None:
         bits.append(f"خروجی {fa_num(output_tokens)}")
+    if cache_read_tokens:
+        bits.append(f"حافظهٔ نهان {fa_num(cache_read_tokens)}")
     st.caption(" · ".join(bits) + " توکن")
 
 

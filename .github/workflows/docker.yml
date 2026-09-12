@@ -67,7 +67,13 @@ jobs:
           cache: pip
           cache-dependency-path: docker/requirements-cloud.txt
 
-      - run: pip install -r docker/requirements-cloud.txt
+      - run: pip install -r docker/requirements-cloud.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check app scripts tests
+
+      - name: Unit tests (no database)
+        run: python -m pytest -q -m "not db"
 
       # docker/seed.dump is a PG 16 custom archive (format 1.15); an older
       # pg_restore refuses it outright.
@@ -84,6 +90,9 @@ jobs:
           python -m scripts.seed_mock --reset --n 40
           n=$(psql "$DATABASE_URL" -tAc 'select count(*) from legal_cases')
           [ "$n" = "40" ] || { echo "::error::expected 40 cases, got $n"; exit 1; }
+
+      - name: Database tests (seeded archive, offline model)
+        run: python -m pytest -q -m db
 
       - name: Every API endpoint answers (scripts/check.sh)
         run: |

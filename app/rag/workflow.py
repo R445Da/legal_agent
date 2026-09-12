@@ -40,8 +40,8 @@ from typing import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.base import LLMProvider
+from app.llm.meter import MeteredProvider
 from app.rag import runs
-from app.rag.orchestrator import _INTENT_FA
 
 # Step ids, in order. Kept as a constant so the UI and the console agree.
 STEP_IDS = ("classify", "extract", "references", "timeline", "similar", "labels", "commit")
@@ -428,13 +428,17 @@ async def advance(
             status="running",
         )
         t0 = time.perf_counter()
+        # One meter per step: whatever the step spends on the model lands in
+        # its payload, so the console can price each stage.
+        meter = MeteredProvider(llm)
         try:
-            result = await step.run(state, llm, session)
+            result = await step.run(state, meter, session)
         except Exception as error:  # noqa: BLE001 — surfaced to the user for retry
             state.step_status[step.id] = "failed"
             await runs.record_step(
                 session, run_id, seq=index + 1, step_id=step.id, label=step.label,
                 status="failed", error=f"{type(error).__name__}: {error}",
+                payload=_usage_payload({}, meter),
                 ms=round((time.perf_counter() - t0) * 1000),
             )
             await runs.save_state(session, run_id, state.to_dict(), status="failed")
@@ -449,7 +453,7 @@ async def advance(
             await runs.record_step(
                 session, run_id, seq=index + 1, step_id=step.id, label=step.label,
                 status="awaiting_input", detail=result.detail,
-                payload=_payload(step.id, state), ms=ms,
+                payload=_usage_payload(_payload(step.id, state), meter), ms=ms,
             )
             await runs.save_state(session, run_id, state.to_dict(), status="awaiting_input")
             return await runs.load_run(session, run_id)
@@ -458,7 +462,7 @@ async def advance(
         await runs.record_step(
             session, run_id, seq=index + 1, step_id=step.id, label=step.label,
             status=result.status, detail=result.detail,
-            payload=_payload(step.id, state), ms=ms,
+            payload=_usage_payload(_payload(step.id, state), meter), ms=ms,
         )
 
     await runs.save_state(session, run_id, state.to_dict(), status="committed")
@@ -469,6 +473,13 @@ async def advance(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+def _usage_payload(payload: dict, meter: MeteredProvider) -> dict:
+    """The step's payload plus what it cost, when it called the model at all."""
+    if meter.usage.calls:
+        return {**payload, "usage": meter.usage.to_dict()}
+    return payload
+
+
 def _payload(step_id: str, state: WorkflowState) -> dict:
     if step_id == "labels":
         # In "review" mode this gate shows the whole record at once, so its
@@ -482,6 +493,7 @@ def _payload(step_id: str, state: WorkflowState) -> dict:
                 "similar": state.similar,
                 "references": state.references,
                 "missing": _missing_required(state),
+                "tool_log": state.tool_log,
             })
         return base
     return {
