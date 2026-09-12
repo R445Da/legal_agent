@@ -147,11 +147,20 @@ Set the model key once, as a Codespaces secret, not in a file:
 `github.com/settings/codespaces` → **New secret** → `ANTHROPIC_API_KEY`.
 
 Note that a Codespace runs on Azure — a datacenter IP — so **Groq is blocked
-there too**, which is why `.devcontainer/setup.sh` writes an Anthropic default.
+there too**. `.devcontainer/setup.sh` writes an Anthropic `.env` when that
+secret exists and otherwise the offline `mock` model, so every screen works
+either way. It restores `docker/seed.dump` with `pg_restore` (a PG 16 custom
+archive — `psql` cannot load it), runs the migrations, and seeds the insurance
+edition on top. Re-running the script is safe.
 
 ### What CI does on every push
 
-`.github/workflows/docker.yml` builds `Dockerfile.cloud` for **linux/amd64 and
+A `test` job first runs the app against a real **pgvector** container — the
+insurance seed, every API endpoint (`scripts/check.sh`), every UI section
+(`scripts/ui_smoke.py`), and a restore of `docker/seed.dump` plus migrations —
+on the offline mock model, so it needs no secret.
+
+Then `.github/workflows/docker.yml` builds `Dockerfile.cloud` for **linux/amd64 and
 linux/arm64** and publishes to `ghcr.io/<you>/<repo>`. That is the same image
 Oracle (ARM) and HF Spaces (x86) pull — one build, both targets. A pull request
 builds x86 only, because an emulated ARM build takes ~20 minutes and a PR does

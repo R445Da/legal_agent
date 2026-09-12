@@ -21,6 +21,8 @@ import asyncio
 import functools
 import math
 import os
+import threading
+from pathlib import Path
 
 _MODEL_NAME = os.environ.get("RERANK_MODEL", "jinaai/jina-reranker-v2-base-multilingual")
 _ENABLED = os.environ.get("RERANK", "1") != "0"
@@ -44,17 +46,36 @@ def default_model() -> str:
     return _MODEL_NAME
 
 
+_LOAD_LOCK = threading.Lock()
+
+
 @functools.lru_cache(maxsize=4)
 def load_model(model_name: str | None = None):
     """The cross-encoder, cached per model name so the UI can switch between a
-    couple without paying the load cost twice."""
+    couple without paying the load cost twice.
+
+    Stored in the same directory as the embedder (`~/.cache/fastembed` unless
+    FASTEMBED_CACHE_DIR says otherwise). fastembed's own default is under /tmp,
+    which WSL and most containers wipe on restart — a 1.1 GB re-download of
+    this model on every boot.
+    """
     from fastembed.rerank.cross_encoder import TextCrossEncoder
 
-    return TextCrossEncoder(model_name=model_name or _MODEL_NAME)
+    from app.rag.embeddings import _CACHE_DIR
+
+    Path(_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+    return TextCrossEncoder(model_name=model_name or _MODEL_NAME, cache_dir=_CACHE_DIR)
+
+
+def _load_locked(model_name: str):
+    # lru_cache does not serialise concurrent first calls: two requests that
+    # arrive before the model is cached each start their own download.
+    with _LOAD_LOCK:
+        return load_model(model_name)
 
 
 def _model():
-    return load_model(_MODEL_NAME)
+    return _load_locked(_MODEL_NAME)
 
 
 def _sigmoid(x: float) -> float:
@@ -82,6 +103,8 @@ async def rerank_scores(
     on = _ENABLED if enabled is None else enabled
     if not on or not passages:
         return None
-    encoder = load_model(model or _MODEL_NAME)
+    # The first call downloads and loads the model. On the event loop that
+    # froze the whole server — /health included — until the download finished.
+    encoder = await asyncio.to_thread(_load_locked, model or _MODEL_NAME)
     raw = await asyncio.to_thread(lambda: list(encoder.rerank(query, passages)))
     return [_sigmoid(float(s)) for s in raw]

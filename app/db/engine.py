@@ -127,15 +127,21 @@ _UPGRADES = (
 async def create_schema(engine) -> None:
     """Create tables if they don't exist, then verify the embedding model
     matches the stored vectors. Safe to call on every startup."""
+    from sqlalchemy import text
+
     from app.db.models import Base
 
     async with engine.begin() as conn:
+        # The embedded path enables the extension in resolve_database_url().
+        # An external DATABASE_URL (Codespaces, CI, Supabase, Neon) arrives
+        # with pgvector *installed* but not *enabled* in this database, and
+        # `create_all` then dies on `vector(384)`: "type vector does not
+        # exist". pgvector is a trusted extension, so no superuser is needed.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         # `create_all` never alters an existing table. Columns added to
         # `entries` by the insurance edition are applied here, idempotently,
         # so an older database upgrades on the next start without a script.
-        from sqlalchemy import text
-
         for ddl in _UPGRADES:
             await conn.execute(text(ddl))
 

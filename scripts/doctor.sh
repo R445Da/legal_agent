@@ -3,16 +3,19 @@
 # Run this FIRST whenever the app misbehaves — especially when Groq goes quiet.
 #
 #   scripts/doctor.sh
+#   UI_PORT=3012 API_PORT=8000 scripts/doctor.sh   # non-default ports
 set -u
 cd "$(dirname "$0")/.."
 V=".venv/bin"
+UI_PORT="${UI_PORT:-8501}"
+API_PORT="${API_PORT:-8000}"
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$1"; }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$1"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
 
 echo
 echo "── servers ──────────────────────────────────────────"
-for s in "Streamlit UI|8501|/_stcore/health" "API console|8000|/health" "Ollama|11434/api/version|"; do
+for s in "Streamlit UI|${UI_PORT}|/_stcore/health" "API console|${API_PORT}|/health" "Ollama|11434/api/version|"; do
   IFS='|' read -r name port path <<< "$s"
   url="http://localhost:${port}${path}"
   code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$url" 2>/dev/null)

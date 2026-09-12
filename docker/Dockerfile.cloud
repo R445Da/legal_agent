@@ -67,6 +67,9 @@ COPY --chown=app:app scripts/ ./scripts/
 COPY --chown=app:app .streamlit/ ./.streamlit/
 COPY --chown=app:app streamlit_app.py ./
 COPY --chown=app:app docker/entrypoint-cloud.sh ./docker/
+# The statute base scripts/seed_mock.py loads (~120 KB); without it the image
+# cannot seed the insurance edition's legal context.
+COPY --chown=app:app data/laws/ ./data/laws/
 
 # Retrieval settings must match the vectors in the database — see the startup
 # guard in app/db/engine.py, which refuses to run on a mismatch.

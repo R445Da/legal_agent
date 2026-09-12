@@ -17,6 +17,7 @@ if you switch to one you can set EMBEDDING_PREFIXES=0 to skip them.
 import asyncio
 import functools
 import os
+import threading
 from pathlib import Path
 
 # HuggingFace's Xet/CAS transfer backend throws "CAS Client Error: error
@@ -78,8 +79,18 @@ class _HashEmbedder:
             yield np.asarray(self._vector(text), dtype="float32")
 
 
-@functools.lru_cache(maxsize=1)
+_LOAD_LOCK = threading.Lock()
+
+
 def _model():
+    # lru_cache alone does not serialise concurrent first calls; three requests
+    # arriving on a cold server each started their own 235 MB download.
+    with _LOAD_LOCK:
+        return _load_model()
+
+
+@functools.lru_cache(maxsize=1)
+def _load_model():
     name = settings.embedding_model
     if name.startswith("hash://"):
         from app.db.models import EMBEDDING_DIM

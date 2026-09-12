@@ -2,11 +2,12 @@
 # Smoke-test every endpoint. Prints PASS/FAIL per check.
 #   scripts/check.sh                 # against localhost:8000
 #   BASE=https://x.ngrok-free.app scripts/check.sh
+#   API_TOKEN=… scripts/check.sh    # no .env (CI, Codespaces secrets)
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BASE="${BASE:-http://localhost:8000}"
-TOKEN="$(grep -E '^API_TOKEN=' .env | cut -d= -f2-)"
+TOKEN="${API_TOKEN:-$(grep -E '^API_TOKEN=' .env 2>/dev/null | cut -d= -f2-)}"
 AUTH=(-H "authorization: Bearer $TOKEN")
 pass=0; fail=0
 
