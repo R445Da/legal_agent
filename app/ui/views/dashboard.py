@@ -3,9 +3,48 @@
 import streamlit as st
 
 from app.rag.catalog import COLLECTION_FA
+from app.ui import aio, components
+from app.ui.resources import session
 from app.ui.theme import (
     case_id, chips, esc, fa_num, ledger, panel, stamp, timeline,
 )
+
+
+async def _ci_runs() -> list[dict]:
+    from app.rag import ci
+
+    async with session() as s:
+        return await ci.list_ci_runs(s, limit=5)
+
+
+async def _hook_counts() -> dict:
+    from sqlalchemy import func, select
+
+    from app.db.models import WebhookDelivery, WebhookSubscription
+
+    async with session() as s:
+        subs = await s.scalar(select(func.count()).select_from(WebhookSubscription)) or 0
+        rows = (await s.execute(
+            select(WebhookDelivery.status, func.count()).group_by(WebhookDelivery.status)
+        )).all()
+    return {"subscriptions": subs, **{status: n for status, n in rows}}
+
+
+@st.fragment(run_every="3s")
+def _live_ci() -> None:
+    """Refreshes on its own every few seconds — the rest of the page does not."""
+    try:
+        runs = aio.run(_ci_runs())
+        counts = aio.run(_hook_counts())
+    except Exception as error:  # noqa: BLE001 — an old database without the v3 tables
+        panel("خط لولهٔ CI", f"<div class='meta'>{esc(str(error)[:160])}</div>")
+        return
+    components.ci_panel(runs, empty_hint="هنوز رویدادی از CI نرسیده است — «python -m scripts.replay_ci» یک اجرا را بازپخش می‌کند.")
+    bits = [f"{fa_num(counts.get('subscriptions', 0))} اشتراک"]
+    for status, label in (("sent", "ارسال‌شده"), ("pending", "در صف"), ("failed", "ناموفق"), ("dead", "متوقف")):
+        if counts.get(status):
+            bits.append(f"{fa_num(counts[status])} {label}")
+    st.caption("وب‌هوک‌ها: " + " · ".join(bits))
 
 
 def render(cfg: dict, state: dict) -> None:
@@ -42,6 +81,8 @@ def render(cfg: dict, state: dict) -> None:
         + "".join(cards) + "</div>",
         unsafe_allow_html=True,
     )
+
+    _live_ci()
 
     left, right = st.columns(2)
 

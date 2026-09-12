@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,7 +39,7 @@ from app.rag.orchestrator import (
 )
 from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
-from app.rag import casebase, catalog, conversation, graph, lawbase, workflow
+from app.rag import casebase, catalog, ci, conversation, graph, hooks, lawbase, workflow
 from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
@@ -48,12 +50,25 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+async def _drain_loop(interval: float = 3.0) -> None:
+    """Send due webhook deliveries on a timer — including the ones the
+    Streamlit process queued but could not send itself."""
+    while True:
+        try:
+            await hooks.drain(SessionLocal)
+        except Exception:  # noqa: BLE001 — keep the timer alive
+            pass
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_schema(engine)
     app.state.llm = get_llm_provider()
     app.state.model_id = registry.default_id()
+    app.state.drain_task = asyncio.create_task(_drain_loop())
     yield
+    app.state.drain_task.cancel()
     await engine.dispose()
 
 
@@ -88,8 +103,19 @@ async def require_run_access(
     raise HTTPException(401, "Missing or invalid API token")
 
 
+async def require_ci_token(authorization: str | None = Header(default=None)):
+    """POST /ci/status: the CI_STATUS_TOKEN secret, or the API token."""
+    accepted = {t for t in (os.environ.get("CI_STATUS_TOKEN"), settings.api_token) if t}
+    if not accepted:
+        return
+    if authorization and authorization.startswith("Bearer ") and authorization[7:] in accepted:
+        return
+    raise HTTPException(401, "Missing or invalid CI token")
+
+
 auth = [Depends(require_token)]
 run_auth = [Depends(require_run_access)]
+ci_auth = [Depends(require_ci_token)]
 
 
 # --------------------------------------------------------------------------- #
@@ -1030,6 +1056,130 @@ async def delete_document(document_id: str):
         await session.delete(doc)
         await session.commit()
     return {"deleted": document_id}
+
+
+# --------------------------------------------------------------------------- #
+# Webhooks — outbound subscriptions (signed, via the outbox) and inbound CI
+# --------------------------------------------------------------------------- #
+class HookCreate(BaseModel):
+    url: str
+    events: list[str] = ["*"]      # run.step | run.status | entry.committed | answer.created | ping | *
+    description: str | None = None
+    secret: str | None = None      # generated when omitted; returned once
+
+
+@app.post("/hooks", dependencies=auth)
+async def hooks_create(req: HookCreate):
+    """Register a URL. The response carries the signing secret — the only
+    time it is shown. Deliveries carry `X-Legal-Signature-256: sha256=<hmac>`."""
+    async with SessionLocal() as session:
+        try:
+            sub = await hooks.create_subscription(
+                session, url=req.url, events=req.events, description=req.description, secret=req.secret,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return hooks.subscription_view(sub, with_secret=True)
+
+
+@app.get("/hooks", dependencies=auth)
+async def hooks_list():
+    async with SessionLocal() as session:
+        return {"hooks": [hooks.subscription_view(s) for s in await hooks.list_subscriptions(session)],
+                "events": list(hooks.EVENTS)}
+
+
+@app.delete("/hooks/{subscription_id}", dependencies=auth)
+async def hooks_delete(subscription_id: str):
+    async with SessionLocal() as session:
+        if not await hooks.delete_subscription(session, subscription_id):
+            raise HTTPException(404, "No such subscription")
+    return {"deleted": subscription_id}
+
+
+@app.post("/hooks/{subscription_id}/test", dependencies=auth)
+async def hooks_test(subscription_id: str):
+    """Queue a `ping` for one subscription and send it now."""
+    async with SessionLocal() as session:
+        sub = await session.get(hooks.WebhookSubscription, subscription_id)
+        if sub is None:
+            raise HTTPException(404, "No such subscription")
+        delivery = hooks.WebhookDelivery(subscription_id=sub.id, event="ping",
+                                         payload={"message": "سلام از آرشیو حقوقی", "subscription_id": str(sub.id)},
+                                         status="pending", attempts=0)
+        session.add(delivery)
+        await session.commit()
+        delivery_id = delivery.id
+    await hooks.drain(SessionLocal)
+    async with SessionLocal() as session:
+        row = await session.get(hooks.WebhookDelivery, delivery_id)
+        return hooks.delivery_view(row)
+
+
+@app.get("/hooks/deliveries", dependencies=auth)
+async def hooks_deliveries(subscription_id: str | None = None, status: str | None = None,
+                           limit: int = Query(default=50, ge=1, le=500)):
+    async with SessionLocal() as session:
+        rows = await hooks.list_deliveries(session, subscription_id=subscription_id, status=status, limit=limit)
+        return {"deliveries": [hooks.delivery_view(d) for d in rows]}
+
+
+@app.post("/hooks/github")
+async def hooks_github(request: Request):
+    """GitHub → here. Verified with GITHUB_WEBHOOK_SECRET (503 while unset);
+    `ping`, `workflow_run` and `workflow_job` are stored, others ignored."""
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(503, "GITHUB_WEBHOOK_SECRET is not configured")
+    body = await request.body()
+    if not hooks.verify(secret, body, request.headers.get("x-hub-signature-256")):
+        raise HTTPException(401, "Bad signature")
+    event = request.headers.get("x-github-event", "")
+    delivery_id = request.headers.get("x-github-delivery") or f"github:{hooks.new_secret()[:16]}"
+    if event not in ("ping", "workflow_run", "workflow_job"):
+        return {"ignored": event}
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError as error:
+        raise HTTPException(400, "Body is not JSON") from error
+    async with SessionLocal() as session:
+        stored = await ci.record_github(session, delivery_id=delivery_id, event=event, payload=payload)
+        await session.commit()
+    return {"stored": stored, "event": event, "delivery_id": delivery_id}
+
+
+@app.post("/ci/status", dependencies=ci_auth)
+async def ci_status(body: dict = Body(...)):
+    """A stage report from the workflow (`scripts/ci_status.sh`):
+    {run_id, run_number, job, stage, status, conclusion?, sha, branch, url, ts}."""
+    async with SessionLocal() as session:
+        stored = await ci.record_status(session, body, source=body.get("source") or "ci-step")
+        await session.commit()
+    return {"ok": True, "stored": stored}
+
+
+@app.get("/ci/events", dependencies=run_auth)
+async def ci_events(limit: int = Query(default=10, ge=1, le=50)):
+    """The latest CI runs with their jobs and stages, newest first."""
+    async with SessionLocal() as session:
+        return {"runs": await ci.list_ci_runs(session, limit=limit)}
+
+
+@app.get("/ci/events/stream", dependencies=run_auth)
+async def ci_events_stream(limit: int = Query(default=5, ge=1, le=20)):
+    """SSE: the run list, re-sent whenever it changes (2 s polling)."""
+    async def _stream():
+        last = None
+        for _ in range(900):  # 30 min ceiling
+            async with SessionLocal() as session:
+                runs = await ci.list_ci_runs(session, limit=limit)
+            fingerprint = [(r["run_id"], r["updated_at"], r["status"], r["conclusion"]) for r in runs]
+            if fingerprint != last:
+                last = fingerprint
+                yield f"data: {json.dumps({'runs': runs}, ensure_ascii=False, default=str)}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 # --------------------------------------------------------------------------- #

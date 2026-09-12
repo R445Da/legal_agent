@@ -1,0 +1,662 @@
+[
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34691037134:run:requested",
+  "payload": {
+   "action": "requested",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34691037134,
+    "name": "docker",
+    "run_number": 2,
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134",
+    "run_started_at": "2026-09-12T11:25:55Z",
+    "updated_at": "2026-09-12T11:27:54Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ },
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34691037134:run:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34691037134,
+    "name": "docker",
+    "run_number": 2,
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134",
+    "run_started_at": "2026-09-12T11:25:55Z",
+    "updated_at": "2026-09-12T11:27:54Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546189747:queued",
+  "payload": {
+   "action": "queued",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546189747,
+    "run_id": 34691037134,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546189747",
+    "started_at": "2026-09-12T11:25:58Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:25:59Z",
+      "completed_at": "2026-09-12T11:26:00Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:26:00Z",
+      "completed_at": "2026-09-12T11:26:03Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:26:03Z",
+      "completed_at": "2026-09-12T11:26:08Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:26:08Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "queued",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Tags",
+      "status": "queued",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:12Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "queued",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:26:12Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "queued",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "queued",
+      "conclusion": null,
+      "number": 11,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 12,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:41Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 13,
+      "started_at": "2026-09-12T11:26:41Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 14,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 15,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546189747:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546189747,
+    "run_id": 34691037134,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546189747",
+    "started_at": "2026-09-12T11:25:58Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:25:59Z",
+      "completed_at": "2026-09-12T11:26:00Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:26:00Z",
+      "completed_at": "2026-09-12T11:26:03Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:26:03Z",
+      "completed_at": "2026-09-12T11:26:08Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:26:08Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "completed",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Tags",
+      "status": "completed",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:12Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "completed",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:26:12Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "completed",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "completed",
+      "conclusion": null,
+      "number": 11,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 12,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:41Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 13,
+      "started_at": "2026-09-12T11:26:41Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 14,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 15,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546189747:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546189747,
+    "run_id": 34691037134,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546189747",
+    "started_at": "2026-09-12T11:25:58Z",
+    "completed_at": "2026-09-12T11:26:44Z",
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-09-12T11:25:59Z",
+      "completed_at": "2026-09-12T11:26:00Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-09-12T11:26:00Z",
+      "completed_at": "2026-09-12T11:26:03Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-09-12T11:26:03Z",
+      "completed_at": "2026-09-12T11:26:08Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-09-12T11:26:08Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:11Z"
+     },
+     {
+      "name": "Tags",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-09-12T11:26:11Z",
+      "completed_at": "2026-09-12T11:26:12Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-09-12T11:26:12Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:39Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12,
+      "started_at": "2026-09-12T11:26:39Z",
+      "completed_at": "2026-09-12T11:26:41Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13,
+      "started_at": "2026-09-12T11:26:41Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 14,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 15,
+      "started_at": "2026-09-12T11:26:43Z",
+      "completed_at": "2026-09-12T11:26:43Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546284575:queued",
+  "payload": {
+   "action": "queued",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546284575,
+    "run_id": 34691037134,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546284575",
+    "started_at": "2026-09-12T11:26:47Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:48Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:51Z"
+     },
+     {
+      "name": "Image refuses a missing DATABASE_URL",
+      "status": "queued",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:26:51Z",
+      "completed_at": "2026-09-12T11:27:51Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:27:51Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:27:52Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546284575:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546284575,
+    "run_id": 34691037134,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546284575",
+    "started_at": "2026-09-12T11:26:47Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:48Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:51Z"
+     },
+     {
+      "name": "Image refuses a missing DATABASE_URL",
+      "status": "completed",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:26:51Z",
+      "completed_at": "2026-09-12T11:27:51Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:27:51Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:27:52Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34691037134:job:103546284575:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103546284575,
+    "run_id": 34691037134,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134/job/103546284575",
+    "started_at": "2026-09-12T11:26:47Z",
+    "completed_at": "2026-09-12T11:27:53Z",
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:48Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-09-12T11:26:48Z",
+      "completed_at": "2026-09-12T11:26:51Z"
+     },
+     {
+      "name": "Image refuses a missing DATABASE_URL",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-09-12T11:26:51Z",
+      "completed_at": "2026-09-12T11:27:51Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-09-12T11:27:51Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-09-12T11:27:52Z",
+      "completed_at": "2026-09-12T11:27:52Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34691037134:run:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34691037134,
+    "name": "docker",
+    "run_number": 2,
+    "head_sha": "dff646e88c48d0b498190217fb8e61b0bf9e1b22",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34691037134",
+    "run_started_at": "2026-09-12T11:25:55Z",
+    "updated_at": "2026-09-12T11:27:54Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ }
+]

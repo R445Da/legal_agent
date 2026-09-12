@@ -194,6 +194,66 @@ def similar_cases_panel(
     return clicked
 
 
+_CI_STAMP = {
+    ("completed", "success"): ("موفق", "teal"), ("completed", "failure"): ("ناموفق", "red"),
+    ("completed", "cancelled"): ("لغو شد", "gray"), ("completed", None): ("تمام شد", "gray"),
+    ("in_progress", None): ("در حال اجرا", "gold"), ("queued", None): ("در صف", "gray"),
+}
+
+
+def _ci_stamp(status: str | None, conclusion: str | None) -> str:
+    label, kind = _CI_STAMP.get((status, conclusion if status == "completed" else None), ("—", "gray"))
+    return stamp(label, kind)
+
+
+def _age(iso: str | None) -> str:
+    import datetime as dt
+
+    if not iso:
+        return ""
+    try:
+        when = dt.datetime.fromisoformat(iso)
+    except ValueError:
+        return ""
+    seconds = max(0, (dt.datetime.now(dt.timezone.utc) - when).total_seconds())
+    if seconds < 90:
+        return f"{fa_num(int(seconds))} ثانیه پیش"
+    if seconds < 5400:
+        return f"{fa_num(int(seconds // 60))} دقیقه پیش"
+    if seconds < 172800:
+        return f"{fa_num(int(seconds // 3600))} ساعت پیش"
+    return f"{fa_num(int(seconds // 86400))} روز پیش"
+
+
+def ci_panel(runs: list[dict] | None, *, title: str = "خط لولهٔ CI", empty_hint: str | None = None) -> None:
+    """The latest CI runs as a ledger: branch, commit, one stamp per job
+    (test → build → smoke) and the stage currently running."""
+    from app.ui.theme import panel
+
+    if not runs:
+        panel(title, f"<div class='meta'>{esc(empty_hint or 'هنوز رویدادی از CI نرسیده است.')}</div>")
+        return
+    rows = []
+    for run in runs[:6]:
+        jobs = run.get("jobs") or []
+        job_bits = " ".join(
+            f"<span title='{esc(j['name'])}'>{esc(j['name'])} {_ci_stamp(j.get('status'), j.get('conclusion'))}</span>"
+            for j in jobs
+        ) or "<span class='meta'>—</span>"
+        running = next((s for j in jobs for s in (j.get("stages") or []) if s.get("status") == "in_progress"), None)
+        stage_line = f"<div class='meta'>در حال اجرا: {esc(running['name'])}</div>" if running else ""
+        number = f"#{fa_num(run['run_number'])}" if run.get("run_number") else ""
+        sha = (run.get("sha") or "")[:7]
+        head = f"{esc(run.get('workflow') or 'docker')} {number} · {esc(run.get('branch') or '')}"
+        link = f" <a href='{esc(run['html_url'])}' target='_blank' style='font-size:11px'>↗</a>" if run.get("html_url") else ""
+        rows.append(
+            f"<div class='kv'><span class='k'>{head}{link}<div class='meta mono'>{esc(sha)} · {_age(run.get('updated_at'))}"
+            f"{' · ' + esc(run['source']) if run.get('source') == 'replay' else ''}</div></span>"
+            f"<span>{_ci_stamp(run.get('status'), run.get('conclusion'))} {job_bits}{stage_line}</span></div>"
+        )
+    panel(title, "".join(rows), sub=f"{fa_num(len(runs))} اجرای اخیر")
+
+
 def error_box(error: Exception) -> None:
     """Provider errors carry the actionable detail (truncation, missing key,
     unreachable gateway) — show the message, not a stack trace."""

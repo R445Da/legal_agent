@@ -736,6 +736,17 @@ async def commit_entry(
             value=tag, labeled_by="pipeline",
         ))
 
+    from app.rag import hooks
+
+    queued = await hooks.emit(session, "entry.committed", {
+        "entry_id": str(entry.id), "title": entry.title, "source": source,
+        "case_number": (entry.entities or {}).get("case_number"),
+        "case_id": str(entry.case_id) if entry.case_id else None,
+        "document_id": str(entry.document_id) if entry.document_id else None,
+        "tags": tags, "legal_refs": len(refs),
+    })
     await session.commit()
     await session.refresh(entry)
+    if queued:
+        hooks.drain_soon(session)
     return entry

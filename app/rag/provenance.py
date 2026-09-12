@@ -189,14 +189,26 @@ async def persist_answer(
     """One `assistant_answers` row per answered question. Commits."""
     from app.db.models import AssistantAnswer
 
+    from app.rag import hooks
+
     row = AssistantAnswer(
         source=source, intent=intent, question=question, answer=answer or "",
         model=model, provenance=provenance,
         run_id=uuid.UUID(str(run_id)) if run_id else None,
     )
     session.add(row)
+    await session.flush()
+    grounding = (provenance or {}).get("grounding") or {}
+    queued = await hooks.emit(session, "answer.created", {
+        "answer_id": str(row.id), "intent": intent, "source": source, "model": model,
+        "question": (question or "")[:300], "grounding_status": grounding.get("status"),
+        "coverage": grounding.get("coverage"), "evidence": len((provenance or {}).get("evidence") or []),
+        "tool_calls": len((provenance or {}).get("tool_trail") or []),
+    })
     await session.commit()
     await session.refresh(row)
+    if queued:
+        hooks.drain_soon(session)
     return str(row.id)
 
 

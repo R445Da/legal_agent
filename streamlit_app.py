@@ -27,6 +27,7 @@ from app.ui import data, nav, resources, sidebar, theme
 from app.ui.views import (
     agent, analytics, bench, cases, dashboard, documents, editor, entities,
     evaluate, events, ingest, labeling, laws, review, schema, search, taxonomy,
+    webhooks,
 )
 
 st.set_page_config(
@@ -41,7 +42,7 @@ VIEWS = {
     "ingest": ingest, "search": search, "documents": documents,
     "taxonomy": taxonomy, "review": review, "labeling": labeling,
     "analytics": analytics, "schema": schema, "eval": evaluate, "bench": bench,
-    "laws": laws, "entities": entities, "editor": editor,
+    "laws": laws, "entities": entities, "editor": editor, "webhooks": webhooks,
 }
 
 
