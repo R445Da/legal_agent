@@ -17,6 +17,7 @@ on:
       - "data/laws/**"
       - "streamlit_app.py"
       - "docker/**"
+      - ".dockerignore"                # decides what reaches the image
       - ".github/workflows/docker.yml"
   pull_request:
   workflow_dispatch:
