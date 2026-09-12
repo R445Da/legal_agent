@@ -32,15 +32,35 @@ from app.rag.retriever import retrieve_scored
 # The five things a message can be. `chat` and `unclear` are new: without them
 # the router's fallback default was `archive`, so any statement it could not
 # place became a proposed Entry — greetings, tasks, half-typed fragments and all.
-VALID_INTENTS = {"query", "archive", "analytics", "chat", "unclear"}
+VALID_INTENTS = {"query", "law", "cases", "archive", "analytics", "chat", "unclear"}
 
 _INTENT_FA = {
-    "query": "پرسش از آرشیو",
+    "query": "پرسش از اسناد",
+    "law": "پرسش از قوانین",
+    "cases": "جستجوی بایگانی پرونده‌ها",
     "archive": "ثبت مطلب جدید",
     "analytics": "آمار آرشیو",
     "chat": "گفت‌وگو",
     "unclear": "نامشخص",
 }
+
+# Insurance-domain vocabularies the extractor and the case table share. Free
+# text is still accepted; these are what the seed uses and the UI filters on.
+CASE_TYPES = [
+    "مطالبه خسارت بیمه‌گذار علیه بیمه‌گر", "دفاع بیمه‌گر: بطلان / تعلیق / قاعده نسبی",
+    "جانشینی / بازیافت", "شخص ثالث — خسارت بدنی/مالی", "بازیافت از راننده مقصر",
+    "صندوق تأمین خسارت‌های بدنی", "حوادث ناشی از کار / مسئولیت کارفرما",
+    "رجوع تأمین اجتماعی (م. ۶۶)", "تقلب / جعل / کلاهبرداری بیمه‌ای",
+    "دعاوی نمایندگان و کارگزاران", "دعاوی استخدامی کارکنان",
+    "اعتراض به بیمه مرکزی / شورای عالی بیمه", "داوری قراردادی", "دعاوی رشته‌محور",
+]
+INSURANCE_LINES = [
+    "شخص ثالث", "حوادث راننده", "بدنه خودرو", "درمان تکمیلی", "عمر و سرمایه‌گذاری",
+    "عمر زمانی", "حوادث انفرادی", "حوادث گروهی", "آتش‌سوزی", "باربری", "کشتی", "هواپیما",
+    "پول", "مسئولیت مدنی کارفرما", "مسئولیت حرفه‌ای پزشکان", "مسئولیت تولیدکننده کالا",
+    "مسئولیت مدیران", "مهندسی (CAR/EAR)", "شکست ماشین‌آلات", "عدم‌النفع", "اعتبار",
+    "نفت و انرژی", "کشاورزی", "اتکایی",
+]
 
 # Human-readable description of the structured record the archive flow produces.
 # The UI uses this to render a guided form and explain what it is capturing —
@@ -68,6 +88,18 @@ ENTRY_SCHEMA = {
          "help": "شمارهٔ کلاسه — کلید تجمیع پرونده‌ها"},
         {"key": "entities.court", "label": "دادگاه", "type": "text", "help": "مرجع رسیدگی"},
         {"key": "entities.topic", "label": "موضوع", "type": "text", "help": "موضوع دعوا"},
+        {"key": "entities.case_type", "label": "نوع دعوا", "type": "choice", "options": CASE_TYPES,
+         "help": "دسته‌بندی حقوقی پرونده در صنعت بیمه"},
+        {"key": "entities.insurance_line", "label": "رشتهٔ بیمه", "type": "choice", "options": INSURANCE_LINES,
+         "help": "رشتهٔ بیمه‌ای موضوع پرونده"},
+        {"key": "entities.claim_amount", "label": "مبلغ خواسته (ریال)", "type": "text", "help": "مبلغ خسارت/خواسته"},
+        {"key": "entities.outcome", "label": "نتیجه", "type": "text", "help": "رأی یا وضعیت نهایی"},
+        {"key": "entities.status", "label": "وضعیت", "type": "choice", "options": ["open", "closed", "appeal", "archived"],
+         "help": "جاری / مختومه / تجدیدنظر / بایگانی"},
+        {"key": "entities.filed_date", "label": "تاریخ طرح", "type": "text", "help": "تاریخ شمسی"},
+        {"key": "legal_refs", "label": "مستندات قانونی", "type": "list",
+         "item": {"law": "قانون", "article": "ماده", "context": "نحوهٔ استناد"},
+         "help": "موادی که دادگاه یا طرفین به آن استناد کرده‌اند — به پایگاه قوانین متصل می‌شود"},
         {"key": "entities.people", "label": "اشخاص", "type": "taglist", "help": "نام اشخاص ذکرشده"},
         {"key": "entities.orgs", "label": "سازمان‌ها", "type": "taglist", "help": "نام سازمان‌ها/شرکت‌ها"},
         {"key": "tags", "label": "برچسب‌ها", "type": "taglist", "help": "برچسب‌های دسته‌بندی"},
@@ -83,6 +115,14 @@ _ROUTER_SYSTEM = (
     '- "query": the user asks a QUESTION to be answered from the archive — about '
     "a case, a ruling, a person, what happened. Often ends with ؟ or contains "
     "چه/چگونه/کدام/آیا/چرا, or asks to show/find/list specific records.\n"
+    '- "law": asks what the LAW says — the text or meaning of an article, a '
+    "statute, a regulation, a precedent; a legal rule in the abstract (طبق قانون "
+    "بیمه...، ماده ۳۰ چه می‌گوید، مرور زمان دعاوی بیمه چقدر است). Answered from "
+    "the legal-context base with article citations.\n"
+    '- "cases": asks the CASE ARCHIVE for precedents or records — cases about a '
+    "topic, cases of a lawyer/company/insurer, how similar cases ended, which "
+    "articles cases like this relied on (پرونده‌های مشابه، سابقهٔ آرای جانشینی، "
+    "پرونده‌های وکیل کریمی). Answered from the structured case table.\n"
     '- "analytics": asks for a COUNT, an aggregate or an overview of the whole '
     "archive (چند، تعداد، آمار، فهرست همهٔ...).\n"
     '- "archive": the user is RECORDING something that happened, for the file — '
@@ -104,6 +144,10 @@ _ROUTER_SYSTEM = (
     "\n"
     "Examples:\n"
     'در پرونده کالای معیوب دادگاه چه تصمیمی گرفت؟ -> {"intent":"query","confidence":0.95,"clarify":""}\n'
+    'ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟ -> {"intent":"law","confidence":0.96,"clarify":""}\n'
+    'مرور زمان دعاوی بیمه چند سال است؟ -> {"intent":"law","confidence":0.9,"clarify":""}\n'
+    'پرونده‌های بازیافت از رانندهٔ فاقد گواهینامه چطور تمام شده‌اند؟ -> {"intent":"cases","confidence":0.93,"clarify":""}\n'
+    'وکیل کریمی در چه پرونده‌هایی بوده؟ -> {"intent":"cases","confidence":0.9,"clarify":""}\n'
     'امروز جلسه پرونده ۱۴۰۲۱۱ برگزار شد. خواهان شرکت الف با وکالت آقای کریمی بود. '
     'قاضی پرونده را به کارشناسی ارجاع داد. -> {"intent":"archive","confidence":0.9,"clarify":""}\n'
     'چند پرونده کارگری داریم؟ -> {"intent":"analytics","confidence":0.92,"clarify":""}\n'
@@ -125,11 +169,19 @@ _EXTRACT_SYSTEM = (
     '  "representation": [{"lawyer": string, "client": string}],\n'
     '  "events": [{"date": string, "description": string}],\n'
     '  "entities": {"people": [string], "orgs": [string], "case_number": string, '
-    '"court": string, "topic": string},\n'
+    '"court": string, "topic": string, "case_type": string, "insurance_line": string, '
+    '"claim_amount": string, "outcome": string, "status": "open" | "closed" | "appeal", '
+    '"filed_date": string},\n'
+    '  "legal_refs": [{"law": string, "article": string, "context": string, '
+    '"used_by": "court" | "plaintiff" | "defendant"}],\n'
     '  "tags": [string]\n'
     "}\n"
     'Use "" or [] where unknown. "representation" is who acted for whom '
-    "(lawyer -> client)."
+    "(lawyer -> client). \"legal_refs\" lists every statute article, regulation "
+    "or precedent the text cites (e.g. law=\"قانون بیمه\", article=\"30\") with "
+    "how it was used. \"case_type\" is one of: " + " | ".join(CASE_TYPES) + ". "
+    "\"insurance_line\" is one of: " + " | ".join(INSURANCE_LINES) + ". "
+    "\"claim_amount\" is the amount claimed in Rials as digits only."
 )
 
 
@@ -183,6 +235,8 @@ class Route:
 # A few high-precision shortcuts that skip the model call for obvious messages.
 # Everything else — including anything ambiguous — goes to the router.
 _ANALYTICS_HINT = ("چند ", "چندتا", "تعداد ", "آمار", "چند پرونده", "چند مدخل")
+_LAW_RX = re.compile(r"(?:ماد[هۀ]|تبصر[هۀ])\s*[0-9۰-۹]+")
+_CASES_HINT = ("پرونده‌های مشابه", "پرونده های مشابه", "سابقهٔ آرا", "سابقه آرا", "رویهٔ", "در چه پرونده")
 _GREETING = ("سلام", "درود", "خداحافظ", "ممنون", "مرسی", "متشکرم", "hi", "hello", "thanks")
 
 
@@ -206,6 +260,10 @@ async def route(llm: LLMProvider, text: str, *, forced: str | None = None) -> Ro
         return Route(intent="chat", confidence=0.9, reason="احوال‌پرسی")
     if any(h in lowered for h in _ANALYTICS_HINT):
         return Route(intent="analytics", confidence=0.8, reason="واژهٔ شمارشی")
+    if _LAW_RX.search(stripped) and any(m in stripped for m in ("؟", "?", "چه", "چیست", "میگوید", "می‌گوید")):
+        return Route(intent="law", confidence=0.85, reason="ارجاع به مادهٔ قانونی")
+    if any(h in stripped for h in _CASES_HINT):
+        return Route(intent="cases", confidence=0.8, reason="درخواست سابقهٔ پرونده")
 
     try:
         resp = await _router_llm(llm).generate(
@@ -280,10 +338,23 @@ async def extract_entry(llm: LLMProvider, text: str) -> dict:
     for key in ("people", "orgs"):
         v = ent.get(key)
         ent[key] = [str(x) for x in v] if isinstance(v, list) else ([str(v)] if v else [])
-    for key in ("case_number", "court", "topic"):
+    for key in ("case_number", "court", "topic", "case_type", "insurance_line", "claim_amount",
+                "outcome", "status", "filed_date"):
         v = ent.get(key)
         ent[key] = ", ".join(str(x) for x in v) if isinstance(v, list) else (str(v) if v else "")
     data["entities"] = ent
+    refs = data.get("legal_refs")
+    clean_refs = []
+    for r in (refs if isinstance(refs, list) else []):
+        if isinstance(r, str):
+            r = {"text": r}
+        if isinstance(r, dict) and (r.get("law") or r.get("text")):
+            clean_refs.append({
+                "law": str(r.get("law") or ""), "article": str(r.get("article") or ""),
+                "context": str(r.get("context") or ""), "used_by": str(r.get("used_by") or ""),
+                "text": str(r.get("text") or ""),
+            })
+    data["legal_refs"] = clean_refs
     return data
 
 
@@ -426,6 +497,18 @@ async def run_assistant(
             "steps": steps,
         }
 
+    if intent == "law":
+        from app.rag.lawbase import answer_law_question
+
+        res = await answer_law_question(session, llm, text)
+        return {"intent": "law", **res, "steps": steps + res.get("steps", [])}
+
+    if intent == "cases":
+        from app.rag.casebase import answer_case_question
+
+        res = await answer_case_question(session, llm, text)
+        return {"intent": "cases", **res, "steps": steps + res.get("steps", [])}
+
     if intent == "query":
         res = await answer_question(session, llm, text, top_k=5)
         return {
@@ -506,7 +589,16 @@ async def commit_entry(
         text=raw_text,
         source=source,
         title=draft.get("title") or None,
-        metadata={"via": "assistant", "kind": draft.get("kind", "session")},
+        metadata={
+            "via": "assistant", "kind": draft.get("kind", "session"),
+            **({"collection": draft["_collection"]} if draft.get("_collection") else {}),
+            **{k: v for k, v in {
+                "case_number": (draft.get("entities") or {}).get("case_number"),
+                "case_type": (draft.get("entities") or {}).get("case_type"),
+                "insurance_line": (draft.get("entities") or {}).get("insurance_line"),
+                "group": (draft.get("entities") or {}).get("group"),
+            }.items() if v},
+        },
         replace=True,
     )
 
@@ -524,6 +616,12 @@ async def commit_entry(
 
     tags = [str(t).strip() for t in (draft.get("tags") or []) if str(t).strip()]
 
+    from app.rag import casebase, lawbase
+
+    refs = draft.get("legal_refs") or []
+    if any(not r.get("ref_id") for r in refs if isinstance(r, dict)):
+        refs = await lawbase.resolve_refs(session, refs, create_stubs=True)
+
     entry = Entry(
         document_id=doc.id if doc else None,
         kind=draft.get("kind", "session"),
@@ -536,10 +634,14 @@ async def commit_entry(
         tags=tags,
         related_ids=related_ids,
         related=related,
+        legal_refs=refs,
         raw_text=raw_text,
     )
     session.add(entry)
     await session.flush()  # need entry.id for the label rows
+
+    # The relational + graph side: case row, persons/orgs, citations, edges.
+    await casebase.sync_entry(session, entry)
 
     # The user-curated label set is also written as Label rows so the taxonomy
     # view and the tag filters pick them up, not just the JSON column.

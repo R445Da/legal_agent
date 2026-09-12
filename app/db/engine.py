@@ -117,6 +117,13 @@ async def check_embeddings(engine) -> str | None:
         )
 
 
+_UPGRADES = (
+    "ALTER TABLE entries ADD COLUMN IF NOT EXISTS legal_refs JSONB DEFAULT '[]'::jsonb",
+    "ALTER TABLE entries ADD COLUMN IF NOT EXISTS case_id UUID REFERENCES legal_cases(id) ON DELETE SET NULL",
+    "ALTER TABLE legal_cases ALTER COLUMN claim_amount TYPE BIGINT",
+)
+
+
 async def create_schema(engine) -> None:
     """Create tables if they don't exist, then verify the embedding model
     matches the stored vectors. Safe to call on every startup."""
@@ -124,6 +131,13 @@ async def create_schema(engine) -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # `create_all` never alters an existing table. Columns added to
+        # `entries` by the insurance edition are applied here, idempotently,
+        # so an older database upgrades on the next start without a script.
+        from sqlalchemy import text
+
+        for ddl in _UPGRADES:
+            await conn.execute(text(ddl))
 
     note = await check_embeddings(engine)
     if note:

@@ -12,6 +12,7 @@ from .anthropic_provider import AnthropicProvider
 from .base import LLMProvider
 from .groq_provider import GroqProvider
 from .local_provider import LocalProvider
+from .mock_provider import MockProvider
 from .openai_provider import OpenAIProvider
 
 _PROVIDERS = {
@@ -19,6 +20,7 @@ _PROVIDERS = {
     "openai": OpenAIProvider,
     "groq": GroqProvider,
     "local": LocalProvider,
+    "mock": MockProvider,
 }
 
 

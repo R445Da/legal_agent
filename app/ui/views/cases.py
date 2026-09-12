@@ -8,24 +8,62 @@ view keeps the five folder tabs of the original UI: خلاصه، تایم‌لا
 
 import streamlit as st
 
-from app.ui import components
+from app.rag import casebase, graph
+from app.rag.casebase import STATUS_FA
+from app.ui import aio, components
+from app.ui.resources import session
 from app.ui.theme import card, case_id, chips, esc, fa_num, kv, panel, stamp, timeline
 
+# The archive's role keys (casebase.ROLE_FA) plus the older English ones the
+# first extractions used, so neither renders as a raw key.
 _ROLE_FA = {
+    **casebase.ROLE_FA,
     "plaintiff": "خواهان", "defendant": "خوانده", "lawyer": "وکیل",
     "judge": "قاضی", "witness": "شاهد", "expert": "کارشناس", "other": "سایر",
 }
 
-CASE_TABS = ["خلاصه", "تایم‌لاین", "اسناد و مدخل‌ها", "پرونده‌های مشابه", "وضعیت و مالی"]
+CASE_TABS = ["خلاصه", "تایم‌لاین", "اسناد و مدخل‌ها", "پرونده‌های مشابه", "وضعیت و مالی", "گراف و مستندات"]
+
+_ALL = "همه"
+
+# Who relied on a cited article — the extractor writes these in English.
+_USED_BY_FA = {
+    "court": "دادگاه", "plaintiff": "خواهان", "defendant": "خوانده", "judge": "قاضی",
+    "insurer": "بیمه‌گر", "insured": "بیمه‌گذار", "expert": "کارشناس", "lawyer": "وکیل",
+}
+
+
+def _rial(amount) -> str:
+    if amount in (None, "", 0):
+        return "—"
+    try:
+        return fa_num(f"{int(amount):,}").replace(",", "٬") + " ریال"
+    except (TypeError, ValueError):
+        return fa_num(amount)
+
+
+async def _record(case_id: str) -> dict | None:
+    async with session() as s:
+        return await casebase.get_case(s, case_id)
+
+
+async def _dot(case_id: str) -> str:
+    async with session() as s:
+        return graph.to_dot(await graph.neighborhood(s, "case", case_id, depth=1))
 
 
 def _case_card(case: dict, *, on_open) -> None:
     """The row is the control — clicking the case opens it."""
     parties = "، ".join(p["name"] for p in case["parties"][:3])
     status = "ناقص: " + "، ".join(case["incomplete_reasons"]) if case["incomplete"] else "کامل"
+    record = case.get("record") or {}
+    record_line = " · ".join(
+        x for x in (record.get("case_type"), record.get("insurance_line"), record.get("status_fa")) if x
+    )
     if components.row(
         case["title"],
         f"شماره {fa_num(case['number'] or 'ندارد')} · {case['subject']} · {case['court']}",
+        record_line or None,
         parties or None,
         "، ".join(case["tags"][:4]) or None,
         status,
@@ -81,15 +119,94 @@ def _tab_timeline(case: dict) -> None:
 
 
 def _tab_documents(case: dict, *, on_open_doc) -> None:
-    components.rowlist_start()
     for entry in case["entries"]:
-        if components.row(
-            entry.get("title") or "بدون عنوان",
-            entry.get("summary"),
-            f"نوع: {entry.get('kind') or '—'} · ثبت: {fa_num((entry.get('created_at') or '—')[:10])}",
-            key=f"cd_{entry['id']}",
-        ) and entry.get("document_id"):
-            on_open_doc(entry["document_id"])
+        # The row opens the source document; the small button beside it opens
+        # the entry in the editor. Each row gets its own `rowlist` marker inside
+        # its own column so the card styling does not reach the edit button.
+        row_col, edit_col = st.columns([6, 1], gap="small")
+        with row_col:
+            components.rowlist_start()
+            if components.row(
+                entry.get("title") or "بدون عنوان",
+                entry.get("summary"),
+                f"نوع: {entry.get('kind') or '—'} · ثبت: {fa_num((entry.get('created_at') or '—')[:10])}",
+                key=f"cd_{entry['id']}",
+            ) and entry.get("document_id"):
+                on_open_doc(entry["document_id"])
+        with edit_col:
+            if st.button("ویرایش", key=f"cd_edit_{entry['id']}", use_container_width=True,
+                         help="باز کردن این مدخل در ویرایشگر"):
+                st.session_state["edit_entry"] = entry["id"]
+                st.session_state["view"] = "editor"
+                st.rerun()
+
+
+def _tab_graph(case: dict) -> None:
+    """The relational record behind this case, its citations, its parties as
+    records, and the case's neighbourhood in the graph."""
+    record = case.get("record")
+    if not record:
+        components.empty("این پرونده رکورد ساختاریافته ندارد — شمارهٔ پرونده استخراج نشده است.")
+        return
+    try:
+        full = aio.run(_record(record["id"]))
+    except Exception as error:  # noqa: BLE001
+        components.error_box(error)
+        return
+    if not full:
+        components.empty("رکورد پرونده پیدا نشد.")
+        return
+
+    card(kv([
+        ("نوع دعوا", full.get("case_type") or "—"),
+        ("رشتهٔ بیمه", full.get("insurance_line") or "—"),
+        ("وضعیت", full.get("status_fa") or "—"),
+        ("مرحله", full.get("stage") or "—"),
+        ("تاریخ طرح", fa_num(full.get("filed_date") or "—")),
+        ("تاریخ رأی", fa_num(full.get("decided_date") or "—")),
+        ("مبلغ خواسته", _rial(full.get("claim_amount"))),
+        ("نتیجه", full.get("outcome") or "—"),
+    ]))
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("مستندات قانونی")
+        refs = full.get("references") or []
+        if not refs:
+            components.empty("استنادی ثبت نشده است.")
+        components.rowlist_start()
+        for ref in refs:
+            if components.row(
+                ref["cite"],
+                ref.get("context") or None,
+                f"استنادکننده: {_USED_BY_FA.get(ref['used_by'], ref['used_by'])}" if ref.get("used_by") else None,
+                key=f"cref_{full['id']}_{ref['id']}",
+            ):
+                st.session_state["law_focus"] = ref["id"]
+                st.session_state["laws_q"] = ""
+                st.session_state["view"] = "laws"
+                st.rerun()
+    with right:
+        st.subheader("طرفین (رکوردها)")
+        parties = full.get("parties") or []
+        if not parties:
+            components.empty("طرفی ثبت نشده است.")
+        components.rowlist_start()
+        for index, p in enumerate(parties):
+            if components.row(
+                p["name"],
+                f"{p['role_fa']} · {graph.NODE_FA.get(p['type'], p['type'])}",
+                key=f"cparty_{full['id']}_{index}_{p['id']}",
+            ):
+                st.session_state["open_entity"] = {"kind": p["type"], "key": p["id"]}
+                st.session_state["view"] = "entities"
+                st.rerun()
+
+    st.subheader("گراف پرونده")
+    try:
+        st.graphviz_chart(aio.run(_dot(full["id"])), use_container_width=True)
+    except Exception as error:  # noqa: BLE001
+        components.error_box(error)
 
 
 def _tab_similar(case: dict, state: dict, *, on_open) -> None:
@@ -182,6 +299,8 @@ def _detail(case: dict, state: dict, *, on_open, on_open_doc) -> None:
         _tab_similar(case, state, on_open=on_open)
     with tabs[4]:
         _tab_status(case)
+    with tabs[5]:
+        _tab_graph(case)
 
 
 def render(cfg: dict, state: dict) -> None:
@@ -226,6 +345,38 @@ def render(cfg: dict, state: dict) -> None:
             if needle in str(c["title"]) or needle in str(c["number"] or "")
             or any(needle in p["name"] for p in c["parties"])
         ]
+
+    # Filters over the case record (`legal_cases`): the vocabularies come from
+    # the archive aggregates so every option is one that exists.
+    archive = state.get("archive") or {}
+    picks = st.columns(3)
+    type_pick = picks[0].selectbox(
+        "نوع دعوا", [_ALL] + [r["name"] for r in archive.get("by_type") or []], key="cases_f_type",
+        format_func=lambda v: "همهٔ انواع دعوا" if v == _ALL else v,
+    )
+    line_pick = picks[1].selectbox(
+        "رشتهٔ بیمه", [_ALL] + [r["name"] for r in archive.get("by_line") or []], key="cases_f_line",
+        format_func=lambda v: "همهٔ رشته‌ها" if v == _ALL else v,
+    )
+    statuses = archive.get("by_status") or []
+    status_fa = {r["name"]: r.get("name_fa") or STATUS_FA.get(r["name"], r["name"]) for r in statuses}
+    status_pick = picks[2].selectbox(
+        "وضعیت", [_ALL] + [r["name"] for r in statuses], key="cases_f_status",
+        format_func=lambda v: "همهٔ وضعیت‌ها" if v == _ALL else status_fa.get(v, v),
+    )
+
+    def _keep(c: dict) -> bool:
+        record = c.get("record") or {}
+        if type_pick != _ALL and record.get("case_type") != type_pick:
+            return False
+        if line_pick != _ALL and record.get("insurance_line") != line_pick:
+            return False
+        if status_pick != _ALL and record.get("status") != status_pick:
+            return False
+        return True
+
+    if any(p != _ALL for p in (type_pick, line_pick, status_pick)):
+        cases = [c for c in cases if _keep(c)]
 
     # Ordering was "most entries, then latest event", which reads as random.
     # Newest first by default, and the choice is the user's.

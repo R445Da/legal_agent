@@ -84,7 +84,99 @@ async def _corpus_stats(session, llm, **_) -> dict:
     }
 
 
+async def _search_law(session, llm, *, query: str = "", limit: int = 6, **_) -> dict:
+    from app.rag.lawbase import search_laws
+
+    rows = await search_laws(session, query, limit=min(int(limit or 6), 12))
+    return {"articles": [
+        {"id": r["id"], "cite": r["cite"], "title": r["title"], "text": (r["text"] or "")[:600]}
+        for r in rows
+    ]}
+
+
+async def _search_cases(session, llm, *, query: str = "", limit: int = 6, **_) -> dict:
+    from app.rag.casebase import search_cases
+
+    rows = await search_cases(session, query, limit=min(int(limit or 6), 12))
+    return {"cases": [
+        {"id": r["id"], "case_number": r["case_number"], "title": r["title"],
+         "case_type": r["case_type"], "insurance_line": r["insurance_line"],
+         "court": r["court"], "status": r["status_fa"], "outcome": (r["outcome"] or "")[:200]}
+        for r in rows
+    ]}
+
+
+async def _entity_profile(session, llm, *, name: str = "", kind: str = "person", **_) -> dict:
+    from app.rag.casebase import entity_profile
+
+    kind = "org" if kind in ("org", "organization", "company") else "person"
+    prof = await entity_profile(session, kind, name)
+    if not prof:
+        other = "person" if kind == "org" else "org"
+        prof = await entity_profile(session, other, name)
+    if not prof:
+        return {"error": "شخص یا سازمانی با این نام در بایگانی نیست"}
+    return {
+        "name": prof["name"], "type": prof["type"], "roles": prof["roles_fa"],
+        "case_count": prof["case_count"],
+        "cases": [
+            {"case_number": c["case_number"], "title": c["title"], "role": c["role_fa"],
+             "case_type": c["case_type"], "outcome": (c["outcome"] or "")[:160]}
+            for c in prof["cases"][:12]
+        ],
+        "represents": [r["name"] for r in prof["represents"][:10]],
+    }
+
+
+async def _case_graph(session, llm, *, case_number: str = "", **_) -> dict:
+    from app.rag import graph
+    from app.rag.casebase import get_case
+
+    case = await get_case(session, case_number)
+    if not case:
+        return {"error": "پرونده یافت نشد"}
+    g = await graph.neighborhood(session, "case", case["id"], depth=1)
+    return {
+        "case_number": case["case_number"], "title": case["title"],
+        "parties": [f"{p['name']} ({p['role_fa']})" for p in case["parties"]],
+        "references": [r["cite"] + (f" — {r['context']}" if r.get("context") else "") for r in case["references"]],
+        "outcome": case["outcome"], "nodes": len(g["nodes"]), "edges": len(g["edges"]),
+    }
+
+
 TOOLS: list[Tool] = [
+    Tool(
+        "search_law",
+        "جستجو در پایگاه قوانین: متن و مفاد مواد قانون بیمه، قانون شخص ثالث، تأمین اجتماعی، آیین‌نامه‌ها و آرای وحدت رویه.",
+        {"type": "object", "properties": {
+            "query": {"type": "string", "description": "موضوع یا شمارهٔ ماده، مثلاً «ماده ۳۰ قانون بیمه»"},
+            "limit": {"type": "integer"},
+        }, "required": ["query"]},
+        _search_law,
+    ),
+    Tool(
+        "search_cases",
+        "جستجو در بایگانی پرونده‌ها (جدول ساختاریافته): نوع دعوا، رشتهٔ بیمه، مرجع، نتیجه.",
+        {"type": "object", "properties": {
+            "query": {"type": "string"}, "limit": {"type": "integer"},
+        }, "required": ["query"]},
+        _search_cases,
+    ),
+    Tool(
+        "entity_profile",
+        "پروفایل یک شخص (وکیل، قاضی، طرف دعوا) یا سازمان (شرکت بیمه، بانک): همهٔ پرونده‌ها و نقش‌هایش.",
+        {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "kind": {"type": "string", "enum": ["person", "org"]},
+        }, "required": ["name"]},
+        _entity_profile,
+    ),
+    Tool(
+        "case_graph",
+        "گراف یک پرونده با شمارهٔ آن: طرفین، وکلا، مواد قانونی استنادشده، مرجع و نتیجه.",
+        {"type": "object", "properties": {"case_number": {"type": "string"}}, "required": ["case_number"]},
+        _case_graph,
+    ),
     Tool(
         "search_entries",
         "جستجوی مدخل‌های ساختاریافتهٔ آرشیو با واژه‌های کلیدی (نام شخص، شمارهٔ پرونده، موضوع).",
@@ -153,6 +245,14 @@ def _summarise(name: str, args: dict, out: dict) -> str:
         return f"get_document({_fmt_args(args)}) → «{out.get('title', '')}»"
     if name == "corpus_stats":
         return f"corpus_stats → {out.get('entries', 0)} مدخل، {out.get('documents', 0)} سند"
+    if name == "search_law":
+        return f"search_law({_fmt_args(args)}) → {len(out.get('articles', []))} ماده"
+    if name == "search_cases":
+        return f"search_cases({_fmt_args(args)}) → {len(out.get('cases', []))} پرونده"
+    if name == "entity_profile":
+        return f"entity_profile({_fmt_args(args)}) → {out.get('case_count', 0)} پرونده"
+    if name == "case_graph":
+        return f"case_graph({_fmt_args(args)}) → {out.get('nodes', 0)} گره، {out.get('edges', 0)} یال"
     return f"{name}({_fmt_args(args)})"
 
 

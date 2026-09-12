@@ -76,7 +76,10 @@ async def schema_overview(session: AsyncSession) -> dict:
     """What the system stores and how — so the UI can explain itself."""
     from app.rag.orchestrator import ENTRY_SCHEMA
 
+    from app.rag.casebase import archive_stats
+
     n = await counts(session)
+    g = await archive_stats(session)
     avg_chunks = round(n["chunks"] / n["documents"], 1) if n["documents"] else 0
     return {
         "model": [
@@ -101,11 +104,37 @@ async def schema_overview(session: AsyncSession) -> dict:
                 "count": n["entries"],
                 "fields": [f["label"] for f in ENTRY_SCHEMA["fields"]],
             },
+            {
+                "name": "LegalCase", "fa": "پرونده",
+                "what": "یک ردیف به ازای هر شمارهٔ پرونده — نوع دعوا، رشتهٔ بیمه، مرجع، وضعیت، نتیجه، مبلغ. مدخل‌ها به آن متصل‌اند.",
+                "count": g["cases"],
+                "fields": ["case_number (کلید)", "case_type", "insurance_line", "court", "status", "stage", "filed_date", "outcome", "claim_amount"],
+            },
+            {
+                "name": "LegalReference", "fa": "مادهٔ قانونی (بافت حقوقی)",
+                "what": "قوانین، آیین‌نامه‌ها و آرای وحدت رویه‌ای که دادگاه به آن‌ها ارجاع می‌دهد — طبقه‌بندی اول",
+                "count": g["laws"],
+                "fields": ["law_title", "article_no", "kind (law/regulation/precedent)", "text", "keywords", "text_search"],
+            },
+            {
+                "name": "Person / Organization", "fa": "شخص / سازمان",
+                "what": "هر وکیل، قاضی، طرف دعوا، شرکت بیمه و مرجع یک ردیف است تا بتوان پروفایلش را باز کرد",
+                "count": g["persons"] + g["orgs"],
+                "fields": ["name", "norm_name (کلید ادغام)", "roles", "kind"],
+            },
+            {
+                "name": "GraphEdge", "fa": "یال گراف",
+                "what": "گراف دانش: پرونده → مدخل/سند/شخص/سازمان/ماده/برچسب. جدول‌های case_parties و case_references حقیقت رابطه‌ای‌اند و این جدول همان را برای پیمایش و خروجی Cypher تخت می‌کند.",
+                "count": g["citations"],
+                "fields": ["src_type/src_id", "relation (PARTY, CITES, REPRESENTS, HEARD_AT, …)", "dst_type/dst_id", "weight", "meta"],
+            },
         ],
         "entry_form": ENTRY_SCHEMA,
         "pipeline": {
             "query": ["نرمال‌سازی", "تعبیهٔ پرسش", "جستجوی برداری", "جستجوی متنی (BM25-وار)", "ترکیب RRF", "بازرتبه‌بندی", "تولید پاسخ"],
-            "archive": ["تشخیص نوع", "استخراج ساختاریافته ✋", "خط زمان ✋", "پرونده‌های مشابه (ابزار) ✋", "برچسب‌ها ✋", "ثبت + نمایه‌سازی"],
+            "law": ["تشخیص نوع", "جستجوی متنی در پایگاه قوانین", "پاسخ با استناد به مواد [n]"],
+            "cases": ["تشخیص نوع", "جستجوی متنی در جدول پرونده‌ها", "بارگذاری طرفین و مستندات هر پرونده", "پاسخ با استناد به پرونده‌ها [n]"],
+            "archive": ["تشخیص نوع", "استخراج ساختاریافته ✋", "مستندات قانونی ✋", "خط زمان ✋", "پرونده‌های مشابه (ابزار) ✋", "برچسب‌ها ✋", "ثبت + نمایه‌سازی + گراف"],
             "analytics": ["تشخیص نوع", "تجمیع SQL", "خلاصهٔ زبانی"],
         },
         "pipeline_note": "✋ = توقف برای تأیید شما. هر اجرا در جدول runs ذخیره می‌شود و در «کارگاه ساخت» (localhost:8000/runs/view) قابل مشاهده است.",
@@ -131,10 +160,120 @@ async def list_entries(session: AsyncSession, limit: int = 500) -> list[dict]:
             "tags": e.tags or [],
             "related_ids": e.related_ids or [],
             "related": e.related or [],
+            "legal_refs": e.legal_refs or [],
+            "case_id": str(e.case_id) if e.case_id else None,
             "created_at": e.created_at.isoformat() if e.created_at else None,
         }
         for e in rows
     ]
+
+
+def entry_dict(e: Entry) -> dict:
+    return {
+        "id": str(e.id),
+        "document_id": str(e.document_id) if e.document_id else None,
+        "kind": e.kind, "title": e.title, "summary": e.summary,
+        "entities": e.entities or {}, "parties": e.parties or [], "events": e.events or [],
+        "representation": e.representation or [], "tags": e.tags or [],
+        "related_ids": e.related_ids or [], "related": e.related or [],
+        "legal_refs": e.legal_refs or [], "case_id": str(e.case_id) if e.case_id else None,
+        "raw_text": e.raw_text,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+async def get_entry(session: AsyncSession, entry_id: str) -> dict | None:
+    import uuid
+
+    try:
+        row = await session.get(Entry, uuid.UUID(str(entry_id)))
+    except ValueError:
+        return None
+    return entry_dict(row) if row else None
+
+
+ENTRY_EDITABLE = ("kind", "title", "summary", "parties", "representation", "events", "entities", "tags", "legal_refs")
+
+
+async def update_entry(session: AsyncSession, entry_id: str, patch: dict) -> dict | None:
+    """Edit any field of an entry, then re-sync its case / persons / citations /
+    graph edges so the relational side never drifts from the JSON. Unknown keys
+    are ignored; `entities` is merged, everything else is replaced."""
+    import uuid
+
+    from app.rag import casebase, lawbase
+
+    row = await session.get(Entry, uuid.UUID(str(entry_id)))
+    if row is None:
+        return None
+    for key in ENTRY_EDITABLE:
+        if key not in patch:
+            continue
+        value = patch[key]
+        if key == "entities":
+            merged = {**(row.entities or {}), **(value or {})}
+            row.entities = {k: ("" if v is None else v) for k, v in merged.items()}
+        elif key == "legal_refs":
+            refs = [r for r in (value or []) if isinstance(r, dict) and (r.get("law") or r.get("text"))]
+            row.legal_refs = await lawbase.resolve_refs(session, refs, create_stubs=True)
+        elif key == "tags":
+            row.tags = [str(t).strip() for t in (value or []) if str(t).strip()]
+        else:
+            setattr(row, key, value)
+    # Tag labels mirror the JSON column (the taxonomy view reads Label rows).
+    if "tags" in patch:
+        from sqlalchemy import delete
+
+        await session.execute(delete(Label).where(
+            Label.kind == "tag", Label.target_type == "entry", Label.target_id == str(row.id)
+        ))
+        for tag in row.tags or []:
+            session.add(Label(kind="tag", target_type="entry", target_id=str(row.id), value=tag, labeled_by="editor"))
+    await session.flush()
+    await casebase.sync_entry(session, row)
+    await session.commit()
+    await session.refresh(row)
+    return entry_dict(row)
+
+
+async def delete_entry(session: AsyncSession, entry_id: str, *, with_document: bool = False) -> bool:
+    import uuid
+
+    from sqlalchemy import delete
+
+    from app.db.models import LegalCase
+    from app.rag import graph
+
+    try:
+        row = await session.get(Entry, uuid.UUID(str(entry_id)))
+    except ValueError:
+        return False
+    if row is None:
+        return False
+    case_id, doc_id = row.case_id, row.document_id
+    await graph.unlink_node(session, "entry", row.id)
+    await session.execute(delete(Label).where(Label.target_type == "entry", Label.target_id == str(row.id)))
+    await session.delete(row)
+    await session.flush()
+    if with_document and doc_id:
+        doc = await session.get(Document, doc_id)
+        if doc:
+            await session.delete(doc)
+    if case_id:
+        # Re-sync the case from its remaining entries, or drop it when empty.
+        remaining = (await session.execute(select(Entry).where(Entry.case_id == case_id))).scalars().first()
+        if remaining is not None:
+            from app.rag import casebase
+            await casebase.sync_entry(session, remaining)
+        else:
+            await graph.unlink_node(session, "case", case_id)
+            case = await session.get(LegalCase, case_id)
+            if case:
+                await session.delete(case)
+    from app.rag import casebase
+    await casebase.prune_orphans(session)
+    await session.commit()
+    return True
 
 
 # --------------------------------------------------------------------------- #

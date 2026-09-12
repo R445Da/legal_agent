@@ -34,12 +34,63 @@ _USE_PREFIXES = os.environ.get("EMBEDDING_PREFIXES", "1") != "0"
 _CACHE_DIR = os.environ.get("FASTEMBED_CACHE_DIR") or str(Path.home() / ".cache" / "fastembed")
 
 
+class _HashEmbedder:
+    """Offline fallback: feature-hashed character n-grams, L2-normalised.
+
+    Selected with `EMBEDDING_MODEL=hash://<dim>` (e.g. `hash://384`). It needs
+    no download — Hugging Face and the Qdrant mirror are unreachable from many
+    networks this runs on (Iran, locked-down sandboxes) — and it is
+    deterministic, so a seeded corpus embeds the same way everywhere. Quality is
+    lexical (shared word pieces, not meaning); hybrid retrieval's FTS half and
+    the reranker do the rest. Swap to a real model with `scripts.reembed` once
+    one is reachable.
+    """
+
+    _NGRAMS = (3, 4, 5)
+
+    def __init__(self, dim: int):
+        self.dim = dim
+
+    def _vector(self, text: str) -> list[float]:
+        import hashlib
+        import math
+
+        from app.rag.textnorm import normalize_fa
+
+        vec = [0.0] * self.dim
+        words = normalize_fa(text or "").split()
+        for word in words:
+            padded = f" {word} "
+            grams = [padded[i:i + n] for n in self._NGRAMS for i in range(max(1, len(padded) - n + 1))]
+            grams.append(f"W:{word}")   # whole-word feature, weighted higher
+            for gram in grams:
+                digest = hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest()
+                index = int.from_bytes(digest[:4], "little") % self.dim
+                sign = 1.0 if digest[4] & 1 else -1.0
+                vec[index] += sign * (2.0 if gram.startswith("W:") else 1.0)
+        norm = math.sqrt(sum(v * v for v in vec)) or 1.0
+        return [v / norm for v in vec]
+
+    def embed(self, texts):
+        import numpy as np
+
+        for text in texts:
+            yield np.asarray(self._vector(text), dtype="float32")
+
+
 @functools.lru_cache(maxsize=1)
 def _model():
+    name = settings.embedding_model
+    if name.startswith("hash://"):
+        from app.db.models import EMBEDDING_DIM
+
+        dim = int(name.split("://", 1)[1] or EMBEDDING_DIM)
+        return _HashEmbedder(dim)
+
     from fastembed import TextEmbedding
 
     Path(_CACHE_DIR).mkdir(parents=True, exist_ok=True)
-    return TextEmbedding(model_name=settings.embedding_model, cache_dir=_CACHE_DIR)
+    return TextEmbedding(model_name=name, cache_dir=_CACHE_DIR)
 
 
 def _prefixed(texts: list[str], kind: str) -> list[str]:

@@ -54,8 +54,9 @@ def _approve(step: dict) -> dict:
     """What the UI's gate buttons send back. A script accepts the proposal."""
     p, sid = step.get("payload") or {}, step["step_id"]
     if sid == "labels" and p.get("mode") == "review":     # the one review gate
-        return {k: p[k] for k in ("draft", "timeline", "similar", "labels") if k in p}
+        return {k: p[k] for k in ("draft", "timeline", "similar", "labels", "references") if k in p}
     return {"extract": lambda: {"draft": p},
+            "references": lambda: {"references": p.get("rows", [])},
             "timeline": lambda: {"timeline": p.get("rows", [])},
             "similar": lambda: {"similar": p.get("items", [])},
             "labels": lambda: {"labels": p.get("labels", [])}}.get(sid, dict)()

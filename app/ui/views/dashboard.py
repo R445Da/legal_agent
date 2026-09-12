@@ -16,6 +16,20 @@ def render(cfg: dict, state: dict) -> None:
     counts = state["counts"]
     cases = state["cases"]
     queue = state["review_queue"]
+    archive = state.get("archive") or {}
+
+    # The case archive in four numbers — the relational side of the same data.
+    archive_cards = [
+        ledger(archive.get("cases", 0), "پرونده‌ها (بایگانی)", accent="teal"),
+        ledger(archive.get("laws", 0), "مواد قانونی", accent="gold"),
+        ledger(archive.get("citations", 0), "استنادها"),
+        ledger(archive.get("persons", 0) + archive.get("orgs", 0), "اشخاص و سازمان‌ها"),
+    ]
+    st.markdown(
+        "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px'>"
+        + "".join(archive_cards) + "</div>",
+        unsafe_allow_html=True,
+    )
 
     cards = [
         ledger(len(cases), "پرونده‌ها", accent="teal"),

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import (
+    Body,
     BackgroundTasks,
     Depends,
     FastAPI,
@@ -14,7 +15,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -36,6 +37,7 @@ from app.rag.orchestrator import (
 )
 from app.rag.pipeline import SYSTEM_PROMPT, answer_question, build_prompt
 from app.rag.retriever import effective_config, retrieve_scored
+from app.rag import casebase, catalog, graph, lawbase
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
 
@@ -733,37 +735,166 @@ async def bench(req: BenchRequest):
 @app.get("/entries", dependencies=auth)
 async def entries():
     async with SessionLocal() as session:
-        rows = (
-            await session.execute(select(Entry).order_by(Entry.created_at.desc()))
-        ).scalars().all()
-        return [
-            {
-                "id": str(e.id),
-                "kind": e.kind,
-                "title": e.title,
-                "summary": e.summary,
-                "parties": e.parties,
-                "representation": e.representation,
-                "events": e.events,
-                "entities": e.entities,
-                "tags": e.tags,
-                "related_ids": e.related_ids,
-                "document_id": str(e.document_id) if e.document_id else None,
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-            }
-            for e in rows
-        ]
+        return await catalog.list_entries(session, limit=2000)
+
+
+@app.get("/entries/{entry_id}", dependencies=auth)
+async def get_entry(entry_id: str):
+    async with SessionLocal() as session:
+        row = await catalog.get_entry(session, entry_id)
+        if row is None:
+            raise HTTPException(404, "No such entry")
+        return row
+
+
+@app.patch("/entries/{entry_id}", dependencies=auth)
+async def patch_entry(entry_id: str, patch: dict = Body(...)):
+    """Edit any entry field; re-syncs the case, persons, citations and graph."""
+    async with SessionLocal() as session:
+        row = await catalog.update_entry(session, entry_id, patch)
+        if row is None:
+            raise HTTPException(404, "No such entry")
+        return row
 
 
 @app.delete("/entries/{entry_id}", dependencies=auth)
-async def delete_entry(entry_id: str):
+async def delete_entry(entry_id: str, with_document: bool = False):
     async with SessionLocal() as session:
-        e = await session.get(Entry, entry_id)
-        if e is None:
+        ok = await catalog.delete_entry(session, entry_id, with_document=with_document)
+        if not ok:
             raise HTTPException(404, "No such entry")
-        await session.delete(e)
-        await session.commit()
     return {"deleted": entry_id}
+
+
+# --------------------------------------------------------------------------- #
+# Legal context (laws) · case archive · persons / organizations · graph
+# --------------------------------------------------------------------------- #
+@app.get("/laws", dependencies=auth)
+async def laws(law_title: str | None = None, q: str | None = None, limit: int = 500):
+    async with SessionLocal() as session:
+        if q:
+            return {"items": await lawbase.search_laws(session, q, limit=min(limit, 50))}
+        return {"titles": await lawbase.law_titles(session),
+                "items": await lawbase.list_laws(session, law_title=law_title, limit=limit)}
+
+
+@app.get("/laws/{ref_id}", dependencies=auth)
+async def law(ref_id: str):
+    async with SessionLocal() as session:
+        row = await lawbase.get_ref(session, ref_id)
+        if row is None:
+            raise HTTPException(404, "No such reference")
+        cases = await graph.neighborhood(session, "law", ref_id, depth=1)
+        row["cited_by"] = [n for n in cases["nodes"] if n["type"] == "case"]
+        return row
+
+
+@app.post("/laws", dependencies=auth)
+async def add_law(body: dict = Body(...)):
+    async with SessionLocal() as session:
+        ref = await lawbase.upsert_ref(
+            session, law_title=body["law_title"], article_no=body.get("article_no"), text=body["text"],
+            kind=body.get("kind", "law"), law_year=body.get("law_year"), title=body.get("title"),
+            keywords=body.get("keywords") or [],
+        )
+        await session.commit()
+        return lawbase.as_dict(ref)
+
+
+@app.get("/cases", dependencies=auth)
+async def cases(case_type: str | None = None, insurance_line: str | None = None, status: str | None = None,
+                court: str | None = None, q: str | None = None, limit: int = 500):
+    async with SessionLocal() as session:
+        return {"items": await casebase.list_cases(
+            session, case_type=case_type, insurance_line=insurance_line, status=status,
+            court=court, q=q, limit=min(limit, 2000),
+        )}
+
+
+@app.get("/cases/search", dependencies=auth)
+async def cases_search(q: str, limit: int = 8):
+    async with SessionLocal() as session:
+        return {"items": await casebase.search_cases(session, q, limit=min(limit, 50))}
+
+
+@app.get("/cases/{case_id}", dependencies=auth)
+async def case(case_id: str):
+    async with SessionLocal() as session:
+        row = await casebase.get_case(session, case_id)
+        if row is None:
+            raise HTTPException(404, "No such case")
+        return row
+
+
+@app.patch("/cases/{case_id}", dependencies=auth)
+async def patch_case(case_id: str, patch: dict = Body(...)):
+    async with SessionLocal() as session:
+        row = await casebase.update_case(session, case_id, patch)
+        if row is None:
+            raise HTTPException(404, "No such case")
+        await session.commit()
+        return row
+
+
+@app.get("/cases/{case_id}/graph", dependencies=auth)
+async def case_graph(case_id: str, depth: int = 1, format: str = "json"):
+    async with SessionLocal() as session:
+        row = await casebase.get_case(session, case_id)
+        if row is None:
+            raise HTTPException(404, "No such case")
+        g = await graph.neighborhood(session, "case", row["id"], depth=min(max(depth, 1), 3))
+        if format == "dot":
+            return PlainTextResponse(graph.to_dot(g))
+        if format == "cypher":
+            return PlainTextResponse(graph.to_cypher(g))
+        return g
+
+
+@app.get("/entities/{kind}", dependencies=auth)
+async def entities(kind: str, q: str | None = None, limit: int = 300):
+    if kind not in ("person", "org"):
+        raise HTTPException(400, "kind must be person or org")
+    async with SessionLocal() as session:
+        return {"items": await casebase.list_entities(session, kind, q=q, limit=min(limit, 1000))}
+
+
+@app.get("/entities/{kind}/{key}", dependencies=auth)
+async def entity(kind: str, key: str):
+    if kind not in ("person", "org"):
+        raise HTTPException(400, "kind must be person or org")
+    async with SessionLocal() as session:
+        prof = await casebase.entity_profile(session, kind, key)
+        if prof is None:
+            raise HTTPException(404, "No such entity")
+        return prof
+
+
+@app.get("/graph/{node_type}/{node_id}", dependencies=auth)
+async def graph_node(node_type: str, node_id: str, depth: int = 1, format: str = "json"):
+    if node_type not in graph.NODE_FA:
+        raise HTTPException(400, f"node_type must be one of {sorted(graph.NODE_FA)}")
+    async with SessionLocal() as session:
+        g = await graph.neighborhood(session, node_type, node_id, depth=min(max(depth, 1), 3))
+        if format == "dot":
+            return PlainTextResponse(graph.to_dot(g))
+        if format == "cypher":
+            return PlainTextResponse(graph.to_cypher(g))
+        return g
+
+
+@app.get("/archive/stats", dependencies=auth)
+async def archive_statistics():
+    async with SessionLocal() as session:
+        return await casebase.archive_stats(session)
+
+
+@app.post("/archive/resync", dependencies=auth)
+async def archive_resync():
+    """Rebuild cases / persons / orgs / edges from every entry."""
+    async with SessionLocal() as session:
+        n = await casebase.resync_all(session)
+        await session.commit()
+        return {"entries": n}
 
 
 @app.delete("/documents/{document_id}", dependencies=auth)

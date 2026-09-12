@@ -44,7 +44,7 @@ from app.rag import runs
 from app.rag.orchestrator import _INTENT_FA
 
 # Step ids, in order. Kept as a constant so the UI and the console agree.
-STEP_IDS = ("classify", "extract", "timeline", "similar", "labels", "commit")
+STEP_IDS = ("classify", "extract", "references", "timeline", "similar", "labels", "commit")
 
 _STATUS_TERMINAL = {"done", "skipped"}
 
@@ -80,6 +80,7 @@ class WorkflowState:
     timeline: list = field(default_factory=list)     # [{date, title, detail, source}]
     similar: list = field(default_factory=list)      # [{entry_id, document_id, title, score, outcome, keep}]
     labels: list = field(default_factory=list)       # [str]
+    references: list = field(default_factory=list)   # [{law, article, context, ref_id, resolved, keep}]
     related: list = field(default_factory=list)      # the kept subset of `similar`, written onto the Entry
     tool_log: list = field(default_factory=list)     # [{tool, args, summary}] from the similar-step agent
     step_status: dict = field(default_factory=dict)  # {step_id: pending|running|done|failed|awaiting_input}
@@ -144,6 +145,25 @@ async def _extract(state: WorkflowState, llm: LLMProvider, session: AsyncSession
         have + [f"{len(draft.get('parties', []))} طرف", f"{len(draft.get('events', []))} رویداد"]
     )
     return StepResult({"draft": draft}, detail=detail)
+
+
+async def _references(state: WorkflowState, llm: LLMProvider, session: AsyncSession) -> StepResult:
+    """Link the citations the extractor found to rows of the legal-context base.
+
+    No LLM call: matching is by law title + article number. Unresolved
+    citations are shown at the gate so the user can fix the law name or drop
+    them; on commit anything still unresolved becomes a `stub` row so the graph
+    keeps the edge and the law browser lists what is missing."""
+    from app.rag.lawbase import resolve_refs
+
+    cited = state.draft.get("legal_refs") or []
+    resolved = await resolve_refs(session, cited, create_stubs=False)
+    rows = [{**r, "keep": True} for r in resolved]
+    n_ok = sum(1 for r in rows if r["resolved"])
+    detail = f"{len(rows)} استناد — {n_ok} به پایگاه قوانین متصل شد"
+    if not rows:
+        detail = "استنادی در متن یافت نشد"
+    return StepResult({"references": rows}, detail=detail)
 
 
 async def _timeline(state: WorkflowState, llm: LLMProvider, session: AsyncSession) -> StepResult:
@@ -286,6 +306,10 @@ async def _commit(state: WorkflowState, llm: LLMProvider, session: AsyncSession)
 
     draft = dict(state.draft)
     draft["tags"] = list(state.labels)
+    draft["legal_refs"] = [
+        {k: v for k, v in r.items() if k != "keep"}
+        for r in state.references if r.get("keep", True)
+    ]
     if state.timeline:
         # The approved timeline is the source of truth for events on commit.
         draft["events"] = [
@@ -306,6 +330,7 @@ async def _commit(state: WorkflowState, llm: LLMProvider, session: AsyncSession)
 STEPS: list[Step] = [
     Step("classify", "تشخیص نوع", gate=False, run=_classify),
     Step("extract", "استخراج ساختاریافته", gate=True, run=_extract),
+    Step("references", "مستندات قانونی", gate=True, run=_references),
     Step("timeline", "خط زمان", gate=True, run=_timeline),
     Step("similar", "پرونده‌های مشابه", gate=True, run=_similar),
     Step("labels", "برچسب‌ها", gate=True, run=_labels),
@@ -455,12 +480,14 @@ def _payload(step_id: str, state: WorkflowState) -> dict:
                 "draft": state.draft,
                 "timeline": state.timeline,
                 "similar": state.similar,
+                "references": state.references,
                 "missing": _missing_required(state),
             })
         return base
     return {
         "classify": state.route,
         "extract": state.draft,
+        "references": {"rows": state.references},
         "timeline": {"rows": state.timeline},
         "similar": {"items": state.similar, "tool_log": state.tool_log},
         "commit": {"entry_id": state.entry_id, "related": state.related},

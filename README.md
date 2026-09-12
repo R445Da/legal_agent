@@ -1,5 +1,10 @@
 # Legal RAG
 
+> **Insurance edition** — legal-context base (statutes / آیین‌نامه / precedents),
+> first-class cases, persons, organizations and a knowledge graph linking them;
+> two new routes (`law`, `cases`); a human-gated «مستندات قانونی» step; entry
+> editor; 120-case mock archive. See **docs/INSURANCE-EDITION.md**.
+
 A Farsi-first RAG system with a voice/text **orchestration layer**: dictate or
 type a court session and the system decides whether you're asking a question
 (→ answer from the archive), filing new material (→ extract a structured

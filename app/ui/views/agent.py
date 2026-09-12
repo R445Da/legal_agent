@@ -34,9 +34,10 @@ from app.ui.resources import session
 from app.ui.theme import card, case_id, chips, esc, fa_num, kv, stamp
 
 _EXAMPLES = [
-    "چند پرونده کارگری داریم؟",
-    "در پرونده کالای معیوب دادگاه چه تصمیمی گرفت؟",
-    "پرونده‌های آقای کریمی را نشان بده",
+    "ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟",
+    "پرونده‌های بازیافت از رانندهٔ فاقد گواهینامه چطور تمام شده‌اند؟",
+    "وکیل رضا کریمی در چه پرونده‌هایی بوده؟",
+    "چند پرونده شخص ثالث داریم؟",
 ]
 
 
@@ -376,12 +377,13 @@ def _label_event(event) -> str:
 
 
 _STEP_FA = {
-    "classify": "تشخیص نوع", "extract": "استخراج ساختاریافته", "timeline": "خط زمان",
-    "similar": "پرونده‌های مشابه", "labels": "برچسب‌ها", "commit": "ثبت در آرشیو",
+    "classify": "تشخیص نوع", "extract": "استخراج ساختاریافته", "references": "مستندات قانونی",
+    "timeline": "خط زمان", "similar": "پرونده‌های مشابه", "labels": "برچسب‌ها", "commit": "ثبت در آرشیو",
 }
-_STEP_ORDER = ["classify", "extract", "timeline", "similar", "labels", "commit"]
+_STEP_ORDER = ["classify", "extract", "references", "timeline", "similar", "labels", "commit"]
 _GATE_ACTION = {
-    "extract": "تأیید فیلدها و ادامه", "timeline": "تأیید خط زمان و ادامه",
+    "extract": "تأیید فیلدها و ادامه", "references": "تأیید مستندات و ادامه",
+    "timeline": "تأیید خط زمان و ادامه",
     "similar": "تأیید موارد مشابه و ادامه", "labels": "تأیید برچسب‌ها و ثبت نهایی",
 }
 _WF_ICON = {"done": "✓", "failed": "✕", "running": "…", "awaiting_input": "⏳"}
@@ -509,6 +511,9 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
     elif sid == "extract":
         patch = {"draft": _gate_extract(payload, index)}
         action = _GATE_ACTION["extract"]
+    elif sid == "references":
+        patch = {"references": _gate_references(payload.get("rows") or [], index)}
+        action = _GATE_ACTION["references"]
     elif sid == "timeline":
         patch = {"timeline": _gate_timeline(payload.get("rows") or [], index)}
         action = _GATE_ACTION["timeline"]
@@ -554,12 +559,21 @@ def _gate_review(payload: dict, index: int) -> dict:
     timeline = payload.get("timeline") or []
     similar = payload.get("similar") or []
     labels = payload.get("labels") or []
+    references = payload.get("references") or []
+    unresolved = [r for r in references if not r.get("resolved")]
+    if unresolved:
+        st.warning(
+            f"{fa_num(len(unresolved))} استناد به پایگاه قوانین متصل نشد — در «ویرایش جزئیات» "
+            "نام قانون/شمارهٔ ماده را اصلاح کنید یا تیک آن را بردارید."
+        )
     with st.expander(
-        f"ویرایش جزئیات — فیلدها، خط زمان ({fa_num(len(timeline))})، "
+        f"ویرایش جزئیات — فیلدها، مستندات ({fa_num(len(references))})، خط زمان ({fa_num(len(timeline))})، "
         f"مشابه‌ها ({fa_num(len(similar))})، برچسب‌ها ({fa_num(len(labels))})"
     ):
         st.caption("فیلدهای مدخل")
         draft = _edit_fields(draft, index)
+        st.caption("مستندات قانونی — ارجاع‌های استخراج‌شده و اتصال آن‌ها به پایگاه قوانین")
+        references = _gate_references(references, index)
         st.caption("خط زمان")
         timeline = _gate_timeline(timeline, index)
         st.caption("پرونده‌های مشابه — تیک موارد نامرتبط را بردارید")
@@ -567,7 +581,8 @@ def _gate_review(payload: dict, index: int) -> dict:
         st.caption("برچسب‌ها")
         labels = _gate_labels(labels, index)
 
-    return {"draft": draft, "timeline": timeline, "similar": similar, "labels": labels}
+    return {"draft": draft, "timeline": timeline, "similar": similar, "labels": labels,
+            "references": references}
 
 
 def _edit_fields(draft: dict, index: int) -> dict:
@@ -638,6 +653,36 @@ def _gate_similar(payload: dict, index: int) -> list[dict]:
     return [{**it, "keep": bool(row["نگه‌داری"])} for it, row in zip(items, edited)]
 
 
+def _gate_references(rows: list[dict], index: int) -> list[dict]:
+    """The citations the extractor found, each matched (or not) to a row of the
+    legal-context base. Law and article are editable so an unresolved one can
+    be fixed here; `commit` re-resolves anything that changed."""
+    if not rows:
+        st.caption("استنادی در متن یافت نشد — می‌توانید یکی اضافه کنید یا ادامه دهید.")
+    edited = st.data_editor(
+        [{"نگه‌داری": bool(r.get("keep", True)), "قانون": r.get("law", ""),
+          "ماده": r.get("article", "") or "", "نحوهٔ استناد": r.get("context", ""),
+          "متصل": "✓" if r.get("resolved") else "✕"} for r in rows],
+        use_container_width=True, hide_index=True, num_rows="dynamic", key=f"wf_ref_{index}",
+        column_config={"متصل": st.column_config.TextColumn(disabled=True, width="small")},
+    )
+    out = []
+    for i, row in enumerate(edited):
+        base = rows[i] if i < len(rows) else {}
+        law, art = str(row.get("قانون") or "").strip(), str(row.get("ماده") or "").strip()
+        if not law:
+            continue
+        changed = law != base.get("law") or art != (base.get("article") or "")
+        out.append({
+            **base, "law": law, "article": art, "context": str(row.get("نحوهٔ استناد") or "").strip(),
+            "keep": bool(row.get("نگه‌داری", True)),
+            # a hand-edited citation loses its old link; commit re-resolves it
+            "ref_id": None if changed else base.get("ref_id"),
+            "resolved": False if changed else bool(base.get("resolved")),
+        })
+    return out
+
+
 def _gate_labels(labels: list[str], index: int) -> list[str]:
     from app.rag.taxonomy import leaves
 
@@ -651,8 +696,14 @@ def _gate_labels(labels: list[str], index: int) -> list[str]:
 def _render(cfg: dict, message: dict, index: int) -> None:
     if message["role"] == "user":
         with st.chat_message("user", avatar="🧑"):
-            st.markdown(f"<div class='bubble-user'>{esc(message['text'])}</div>",
-                        unsafe_allow_html=True)
+            # Newlines become <br>: st.markdown parses the string as Markdown,
+            # so a pasted document's blank lines turned the rest of the text
+            # into <p> blocks that took Streamlit's paragraph colour — ink on
+            # the ink-coloured bubble — and single line breaks collapsed.
+            st.markdown(
+                f"<div class='bubble-user'>{esc(message['text']).replace(chr(10), '<br>')}</div>",
+                unsafe_allow_html=True,
+            )
         # A failed turn keeps its text and shows why, with one-click retry —
         # rather than vanishing or being re-attempted on every rerun.
         if message.get("error"):
@@ -683,10 +734,10 @@ def _render(cfg: dict, message: dict, index: int) -> None:
             # One click resends the original message with the intent pinned.
             original = message.get("pending_text", "")
             if original:
-                cols = st.columns(3)
+                cols = st.columns(5)
                 for col, choice, label in zip(
-                    cols, ("query", "archive", "analytics"),
-                    ("پرسش از آرشیو", "ثبت مطلب", "آمار"),
+                    cols, ("query", "law", "cases", "archive", "analytics"),
+                    ("پرسش از اسناد", "قوانین", "پرونده‌ها", "ثبت مطلب", "آمار"),
                 ):
                     if col.button(label, key=f"clarify_{index}_{choice}",
                                   use_container_width=True):
@@ -716,6 +767,32 @@ def _render(cfg: dict, message: dict, index: int) -> None:
             if selected:
                 st.session_state["source_preview"] = selected["document_id"]
                 st.rerun()
+        if message.get("law_refs"):
+            with st.expander(f"مواد استنادشده ({fa_num(len(message['law_refs']))})"):
+                for i, r in enumerate(message["law_refs"], 1):
+                    st.markdown(
+                        f"<div class='kv'><span class='k'>[{fa_num(i)}] {esc(r.get('cite',''))}</span>"
+                        f"<span>{esc(r.get('title') or '')}</span></div>"
+                        f"<div class='meta' style='white-space:pre-wrap;line-height:1.9'>{esc(r.get('text',''))}</div>",
+                        unsafe_allow_html=True,
+                    )
+                if st.button("باز کردن در «قوانین و مستندات»", key=f"open_laws_{index}"):
+                    st.session_state["laws_q"] = message.get("question", "")
+                    st.session_state["view"] = "laws"
+                    st.rerun()
+        if message.get("case_hits"):
+            with st.expander(f"پرونده‌های استنادشده ({fa_num(len(message['case_hits']))})"):
+                components.rowlist_start()
+                for i, c in enumerate(message["case_hits"], 1):
+                    if components.row(
+                        f"[{fa_num(i)}] {c.get('title') or c.get('case_number')}",
+                        f"شماره {fa_num(c.get('case_number',''))} · {c.get('case_type') or '—'} · {c.get('status_fa') or ''}",
+                        (c.get("outcome") or "")[:120] or None,
+                        key=f"case_hit_{index}_{i}",
+                    ):
+                        st.session_state["open_case"] = c.get("case_number")
+                        st.session_state["view"] = "cases"
+                        st.rerun()
         if message.get("stats"):
             with st.expander("دادهٔ خام"):
                 st.json(message["stats"])
@@ -799,6 +876,10 @@ def _answer_pending(cfg: dict) -> None:
                 )
             elif intent == "analytics":
                 _archive_stats(cfg, text)
+            elif intent == "law":
+                _answer_from_laws(cfg, text)
+            elif intent == "cases":
+                _answer_from_cases(cfg, text)
             else:
                 _answer_from_archive(cfg, text)
         except Exception as error:  # noqa: BLE001
@@ -808,6 +889,41 @@ def _answer_pending(cfg: dict) -> None:
         else:
             turn["answered"] = True
     st.rerun()
+
+
+def _answer_from_laws(cfg: dict, text: str) -> None:
+    """The «legal context» route: articles from the law base, answer cites [n]."""
+    from app.rag.lawbase import answer_law_question
+
+    async def _go():
+        async with session() as s:
+            return await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+
+    with st.spinner("در حال جستجو در پایگاه قوانین…"):
+        result = aio.run(_go())
+    st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    components.steps_panel(result.get("steps", []))
+    _say("assistant", intent="law", text=result.get("answer", ""), law_refs=result.get("refs", []),
+         question=text, model=result.get("model"))
+
+
+def _answer_from_cases(cfg: dict, text: str) -> None:
+    """The «case archive» route: structured case records, answer cites [n]."""
+    from app.rag.casebase import answer_case_question
+
+    async def _go():
+        async with session() as s:
+            return await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+
+    with st.spinner("در حال جستجو در بایگانی پرونده‌ها…"):
+        result = aio.run(_go())
+    st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    components.steps_panel(result.get("steps", []))
+    hits = [
+        {k: c.get(k) for k in ("id", "case_number", "title", "case_type", "insurance_line", "status_fa", "outcome")}
+        for c in result.get("cases", [])
+    ]
+    _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"))
 
 
 def _chat_reply(cfg: dict, text: str) -> None:
@@ -846,10 +962,12 @@ def _controls(cfg: dict) -> None:
     """Per-message choices: what kind of message this is, and — for a new
     entry — how much the pipeline stops for you. Model and STT choices are
     settings and live in the left panel."""
+    if st.session_state.pop("compose_intent", None) == "archive":
+        st.session_state["agent_intent"] = "archive"
     left, right = st.columns(2)
     with left:
         st.selectbox(
-            "نوع پیام", ["auto", "query", "archive", "analytics", "chat"],
+            "نوع پیام", ["auto", "query", "law", "cases", "archive", "analytics", "chat"],
             format_func=lambda k: "تشخیص خودکار" if k == "auto" else _INTENT_FA[k],
             key="agent_intent", label_visibility="collapsed",
             help="به‌صورت پیش‌فرض سامانه خودش تشخیص می‌دهد؛ می‌توانید دستی تعیین کنید.",

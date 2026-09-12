@@ -544,6 +544,8 @@ small {{ color: var(--gray) !important; font-size: 12.6px !important; }}
 .intent-badge.analytics {{ color: var(--inkSoft); background: var(--graySoft); }}
 .intent-badge.chat {{ color: var(--teal); background: transparent; border-style: dotted; }}
 .intent-badge.unclear {{ color: var(--stampRed); background: var(--stampRedSoft); }}
+.intent-badge.law {{ color: var(--stampRed); background: var(--stampRedSoft); border-style: solid; }}
+.intent-badge.cases {{ color: var(--amber); background: var(--amberSoft); border-style: dashed; }}
 .thinking {{
   font-size: 12px; color: var(--gray); background: var(--paper);
   border: 1px dashed var(--line); border-radius: 8px; padding: 8px 11px;

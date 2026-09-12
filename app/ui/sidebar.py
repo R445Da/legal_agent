@@ -44,8 +44,19 @@ def _model_section() -> dict:
 
     entries = _catalog(False)
     if not entries:
-        st.error("مدلی یافت نشد. GROQ_API_KEY / OPENAI_BASE_URL را بررسی کنید یا Ollama را اجرا کنید.")
-        st.stop()
+        # No key, no gateway, no Ollama. The archive, laws, graph, editor and
+        # statistics screens need no model — keep the app usable and show the
+        # configured default as unavailable so every LLM call fails clearly.
+        st.error(
+            "مدلی یافت نشد — ANTHROPIC_API_KEY را در .env بگذارید (پیش‌فرض: claude-haiku-4-5)، "
+            "یا GROQ_API_KEY / OPENAI_BASE_URL، یا Ollama را اجرا کنید. "
+            "بخش‌های بایگانی، قوانین، گراف، ویرایش و آمار بدون مدل کار می‌کنند."
+        )
+        from app.llm.registry import _entry, split_id
+
+        provider, model = split_id(registry.default_id())
+        entries = [_entry(provider, model, f"{model}  ·  {provider} (بدون کلید)", available=False,
+                          reason="کلید/اتصال مدل تنظیم نشده است")]
 
     # Options are ids, not entry dicts: `st.cache_data` hands back a fresh copy
     # of the catalog on every re-run, so dict options would be new objects each

@@ -12,3 +12,4 @@ openai
 # Zero-setup local infra for the prototype:
 pgserver       # bundled PostgreSQL + pgvector, runs as the current user (needs Python <= 3.12)
 fastembed      # local ONNX embeddings, no torch, offline after first download
+streamlit      # the product UI (streamlit run streamlit_app.py)

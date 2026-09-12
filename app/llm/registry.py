@@ -88,6 +88,7 @@ _PROVIDER_DEFAULT_MODEL = {
     "openai": "gpt-4.1",
     "groq": "openai/gpt-oss-20b",
     "local": "qwen2.5:3b",
+    "mock": "rules-v1",
 }
 
 
@@ -403,7 +404,10 @@ def catalog(autostart_ollama: bool = False) -> list[dict]:
     entries = _local_models(autostart=autostart_ollama)
     for gw in gateways():
         entries += _gateway_models(gw)
-    return entries + _anthropic_models()
+    entries = entries + _anthropic_models()
+    if os.environ.get("LLM_PROVIDER") == "mock" or os.environ.get("MOCK_LLM") == "1":
+        entries.append(_entry("mock", "rules-v1", "مدل آزمایشی (قاعده‌مند، آفلاین)", available=True))
+    return entries
 
 
 def notes(entries: list[dict]) -> list[str]:
@@ -435,4 +439,8 @@ def resolve(model_id: str) -> LLMProvider:
         return GroqProvider(model=model)
     if provider == "openai":
         return OpenAIProvider(model=model)
+    if provider == "mock":
+        from .mock_provider import MockProvider
+
+        return MockProvider(model=model)
     raise ValueError(f"unknown provider {provider!r} in model id {model_id!r}")

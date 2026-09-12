@@ -33,6 +33,9 @@ SECTIONS = [
     ("schema", "۱۲", "ساختار داده و خط لوله"),
     ("eval", "۱۳", "ارزیابی بازیابی"),
     ("bench", "۱۴", "مقایسهٔ مدل‌ها"),
+    ("laws", "۱۵", "قوانین و مستندات"),
+    ("entities", "۱۶", "اشخاص و سازمان‌ها"),
+    ("editor", "۱۷", "ویرایش مدخل‌ها"),
 ]
 
 _LABELS = {sid: (num, label) for sid, num, label in SECTIONS}
@@ -103,7 +106,7 @@ def render(state: dict) -> str:
             continue
         text = f"{num}  {label}" + (f"   ({fa_num(badge)})" if badge else "")
         if st.button(text, key=f"nav_{sid}", use_container_width=True):
-            go(sid, open_case=None, open_doc=None)
+            go(sid, open_case=None, open_doc=None, open_entity=None)
 
     dark = theme.current() == "dark"
     if st.button("☀  حالت روشن" if dark else "🌙  حالت تیره",

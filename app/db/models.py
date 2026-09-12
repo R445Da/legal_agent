@@ -24,7 +24,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Computed, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, Computed, DateTime, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -114,6 +114,12 @@ class Entry(Base):
     # past outcome, so «پرونده‌های مشابه» can show why a link is there instead of
     # guessing from shared tags. [{entry_id, document_id, title, score, outcome}]
     related: Mapped[list] = mapped_column(JSONB, default=list)
+    # Legal references the entry cites: [{law, article, context, ref_id}]
+    legal_refs: Mapped[list] = mapped_column(JSONB, default=list)
+    # The aggregate this entry belongs to (legal_cases.case_number == entities.case_number)
+    case_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("legal_cases.id", ondelete="SET NULL"), nullable=True
+    )
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -243,3 +249,212 @@ class RunStep(Base):
     run: Mapped["Run"] = relationship(back_populates="steps")
 
     __table_args__ = (Index("ix_run_steps_run", "run_id", "seq"),)
+
+
+# =========================================================================== #
+# Legal knowledge graph — two classifications, related.
+#
+#   1. Legal context   : LegalReference — the laws / articles / regulations /
+#                        precedents a court refers to. Curated, versioned,
+#                        rarely written by the model.
+#   2. Case archive    : LegalCase — one row per case number, the aggregate an
+#                        Entry (a session, a ruling, a note) belongs to.
+#
+# Persons and organizations are first-class rows so a lawyer, a company or a
+# judge can be opened on its own and every case it touches listed. The typed
+# junctions (`case_parties`, `case_references`) are the *relational* truth;
+# `graph_edges` is the same information flattened into (src, relation, dst)
+# triples so a neighbourhood walk of any node is one table scan and the graph
+# can be exported to a real graph database (Neo4j / Cypher) unchanged.
+# =========================================================================== #
+
+_LAW_TSVECTOR = (
+    f"to_tsvector('{TS_CONFIG}', translate("
+    "coalesce(law_title,'') || ' ' || coalesce(article_no,'') || ' ' || "
+    "coalesce(title,'') || ' ' || coalesce(text,'')"
+    f", '{_FOLD_FROM}', '{_FOLD_TO}'))"
+)
+_CASE_TSVECTOR = (
+    f"to_tsvector('{TS_CONFIG}', translate("
+    "coalesce(case_number,'') || ' ' || coalesce(title,'') || ' ' || "
+    "coalesce(case_type,'') || ' ' || coalesce(insurance_line,'') || ' ' || "
+    "coalesce(court,'') || ' ' || coalesce(summary,'') || ' ' || coalesce(outcome,'')"
+    f", '{_FOLD_FROM}', '{_FOLD_TO}'))"
+)
+
+
+class LegalReference(Base):
+    """One citable unit of legal context: an article of a statute, a clause of
+    a regulation (آیین‌نامه), or a precedent (رأی وحدت رویه)."""
+
+    __tablename__ = "legal_refs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String, default="law")     # law | regulation | precedent | circular
+    law_title: Mapped[str] = mapped_column(String, nullable=False)   # قانون بیمه
+    law_year: Mapped[str | None] = mapped_column(String, nullable=True)   # ۱۳۱۶
+    article_no: Mapped[str | None] = mapped_column(String, nullable=True)  # ۳۰
+    title: Mapped[str | None] = mapped_column(String, nullable=True)      # short gloss
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    keywords: Mapped[list] = mapped_column(JSONB, default=list)
+    ref_key: Mapped[str] = mapped_column(String, nullable=False, unique=True)  # "قانون بیمه|30"
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    text_search: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed(_LAW_TSVECTOR, persisted=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_legal_refs_text_search", "text_search", postgresql_using="gin"),
+        Index("ix_legal_refs_law", "law_title", "article_no"),
+    )
+
+
+class Person(Base):
+    """A natural person seen in the archive: a party, a lawyer, a judge, an
+    expert. `norm_name` is the honorific-stripped key two mentions merge on."""
+
+    __tablename__ = "persons"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    norm_name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    roles: Mapped[list] = mapped_column(JSONB, default=list)     # distinct roles ever held
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Organization(Base):
+    """A company, an insurer, a court, a fund, a public body."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    norm_name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    kind: Mapped[str] = mapped_column(String, default="company")  # company | insurer | court | fund | agency | other
+    roles: Mapped[list] = mapped_column(JSONB, default=list)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LegalCase(Base):
+    """The case as a first-class record — what `cases.derive_cases()` used to
+    recompute on every render. One row per case number; entries attach to it."""
+
+    __tablename__ = "legal_cases"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_number: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
+    case_type: Mapped[str | None] = mapped_column(String, nullable=True)       # e.g. جانشینی / بازیافت
+    insurance_line: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g. شخص ثالث
+    court: Mapped[str | None] = mapped_column(String, nullable=True)
+    branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    group: Mapped[str | None] = mapped_column(String, nullable=True)           # حقوقی | کیفری | اداری | داوری
+    status: Mapped[str] = mapped_column(String, default="open")               # open | closed | appeal | archived
+    stage: Mapped[str | None] = mapped_column(String, nullable=True)           # بدوی | تجدیدنظر | اجرا | ...
+    filed_date: Mapped[str | None] = mapped_column(String, nullable=True)      # Jalali, as text
+    decided_date: Mapped[str | None] = mapped_column(String, nullable=True)
+    outcome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claim_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # ریال
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    text_search: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed(_CASE_TSVECTOR, persisted=True), nullable=True
+    )
+
+    parties: Mapped[list["CaseParty"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan"
+    )
+    references: Mapped[list["CaseReference"]] = relationship(
+        back_populates="case", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_legal_cases_text_search", "text_search", postgresql_using="gin"),
+        Index("ix_legal_cases_type_line", "case_type", "insurance_line"),
+    )
+
+
+class CaseParty(Base):
+    """Who is in a case and as what. Exactly one of person_id / org_id is set."""
+
+    __tablename__ = "case_parties"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("legal_cases.id", ondelete="CASCADE"), nullable=False
+    )
+    person_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("persons.id", ondelete="CASCADE"), nullable=True
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)   # khahan | khande | vakil_khahan | ...
+    note: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    case: Mapped["LegalCase"] = relationship(back_populates="parties")
+
+    __table_args__ = (
+        Index("ix_case_parties_case", "case_id"),
+        Index("ix_case_parties_person", "person_id"),
+        Index("ix_case_parties_org", "org_id"),
+    )
+
+
+class CaseReference(Base):
+    """A case citing a unit of legal context, with how it was used."""
+
+    __tablename__ = "case_references"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("legal_cases.id", ondelete="CASCADE"), nullable=False
+    )
+    ref_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("legal_refs.id", ondelete="CASCADE"), nullable=False
+    )
+    context: Mapped[str | None] = mapped_column(Text, nullable=True)   # «مبنای رد دفاع بیمه‌گر»
+    used_by: Mapped[str | None] = mapped_column(String, nullable=True) # court | plaintiff | defendant | model
+    weight: Mapped[float] = mapped_column(default=1.0)
+
+    case: Mapped["LegalCase"] = relationship(back_populates="references")
+
+    __table_args__ = (
+        Index("ix_case_refs_case", "case_id"),
+        Index("ix_case_refs_ref", "ref_id"),
+    )
+
+
+class GraphEdge(Base):
+    """Flattened knowledge graph: (src) -[relation]-> (dst).
+
+    node types: case | entry | document | person | org | law | label
+    relations : HAS_ENTRY | HAS_DOCUMENT | PARTY (role in meta) | REPRESENTS |
+                CITES | LABELED | SIMILAR_TO | HEARD_AT
+    """
+
+    __tablename__ = "graph_edges"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    src_type: Mapped[str] = mapped_column(String, nullable=False)
+    src_id: Mapped[str] = mapped_column(String, nullable=False)
+    relation: Mapped[str] = mapped_column(String, nullable=False)
+    dst_type: Mapped[str] = mapped_column(String, nullable=False)
+    dst_id: Mapped[str] = mapped_column(String, nullable=False)
+    weight: Mapped[float] = mapped_column(default=1.0)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("ix_graph_src", "src_type", "src_id"),
+        Index("ix_graph_dst", "dst_type", "dst_id"),
+        Index("ix_graph_unique", "src_type", "src_id", "relation", "dst_type", "dst_id", unique=True),
+    )
