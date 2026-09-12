@@ -1311,14 +1311,64 @@ def _composer(cfg: dict) -> None:
         _submit(cfg, typed)
 
 
+def _stage_bar(cfg: dict) -> None:
+    """A demo stage in progress: which prompt is next, and one button to send it
+    with the intent and run mode the stage prescribes."""
+    active = st.session_state.get("stage")
+    if not active:
+        return
+    from app.demo.stages import BY_ID
+
+    stage = BY_ID.get(active.get("id"))
+    if stage is None:
+        st.session_state.pop("stage", None)
+        return
+    step = int(active.get("step", 0))
+    if step >= len(stage.prompts):
+        st.success(f"مرحلهٔ «{stage.title}» تمام شد." + (" بخش‌های مرتبط: " + "، ".join(stage.show) if stage.show else ""))
+        if st.button("پایان مرحله", key="stage_done"):
+            st.session_state.pop("stage", None)
+            st.rerun()
+        return
+    prompt = stage.prompts[step]
+    with st.container(border=True):
+        cols = st.columns([4, 1])
+        cols[0].markdown(
+            f"**{esc(stage.title)}** — گام {fa_num(step + 1)} از {fa_num(len(stage.prompts))}"
+            + (f"<div class='meta'>{esc(prompt.note)}</div>" if prompt.note else "")
+            + f"<div class='meta' style='white-space:pre-wrap'>{esc(prompt.text[:160])}{'…' if len(prompt.text) > 160 else ''}</div>",
+            unsafe_allow_html=True,
+        )
+        if cols[1].button("ارسال این گام", key=f"stage_send_{stage.id}_{step}", type="primary", use_container_width=True):
+            if not prompt.reply:
+                st.session_state["agent_intent"] = prompt.intent or "auto"
+                if prompt.mode:
+                    st.session_state["wf_mode"] = prompt.mode
+            st.session_state["stage"] = {"id": stage.id, "step": step + 1}
+            _submit(cfg, prompt.text)
+        if cols[1].button("لغو", key=f"stage_cancel_{stage.id}_{step}", use_container_width=True):
+            st.session_state.pop("stage", None)
+            st.rerun()
+
+
 def render(cfg: dict, state: dict) -> None:
     """Chips when the conversation is empty, the transcript once it isn't, and
     the composer. Nothing else — this screen is a chat, and the model and
     retrieval controls already live in the left panel."""
     history = _history()
 
+    _stage_bar(cfg)
+
     if not history:
-        st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد.")
+        st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد. یا یکی از مراحل نمایش را آغاز کنید:")
+        from app.demo.stages import STAGES
+
+        runnable = [s for s in STAGES if s.prompts]
+        for column, stage in zip(st.columns(len(runnable)), runnable):
+            if column.button(stage.title, key=f"stage_{stage.id}", use_container_width=True,
+                             help=stage.blurb):
+                st.session_state["stage"] = {"id": stage.id, "step": 0}
+                st.rerun()
         for column, example in zip(st.columns(len(_EXAMPLES)), _EXAMPLES):
             if column.button(example, key=f"ex_{example[:10]}", use_container_width=True):
                 _submit(cfg, example)

@@ -151,3 +151,23 @@ tunnel via the ⚙ settings panel (server URL + `API_TOKEN`, saved in the browse
 - **Entity resolution** — extracted names aren't normalised, so "رضا کریمی"
   and "آقای رضا کریمی" count separately in `/stats`.
 - **External Postgres** — set `DATABASE_URL` for anything past a laptop.
+
+## v3
+
+v3 makes the system show its work: every answer carries a checked
+provenance block (numbered evidence, the tool trail, a citation verdict,
+token usage) and lands in `assistant_answers`; the model can research the
+archive itself with read-only tools over several rounds through the new
+`agent` intent («پژوهش عاملی»); filing can happen as a conversation
+(«گفتگویی», `POST /runs` + `POST /runs/{id}/reply`) instead of a form;
+similar past cases come out of the case graph with the reason and the path
+that connects them, plus outcome lessons and comparative advice; and the
+archive emits HMAC-signed webhooks through a transactional outbox while the
+dashboard folds this repository's GitHub Actions runs into a live pipeline.
+Two new sections join the app — ۱۸ «نمایشگاه طراحی», which renders every
+theme and component helper on sample data next to its call, and ۱۹
+«وب‌هوک‌ها و CI». The demo itself is data (`app/demo/stages.py`) and
+`python -m scripts.demo_stages` runs it as an acceptance test. Full
+walkthrough — the provenance JSON shape, the webhook envelope and headers,
+the CI event flow, the new environment knobs and every verification script —
+in [docs/v3.md](docs/v3.md).
