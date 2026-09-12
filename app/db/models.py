@@ -458,3 +458,104 @@ class GraphEdge(Base):
         Index("ix_graph_dst", "dst_type", "dst_id"),
         Index("ix_graph_unique", "src_type", "src_id", "relation", "dst_type", "dst_id", unique=True),
     )
+
+
+# =========================================================================== #
+# v3 — answers with provenance
+# =========================================================================== #
+class AssistantAnswer(Base):
+    """One answered question, with what it rested on (`app/rag/provenance.py`).
+
+    `provenance` is the block the API and the chat show: numbered evidence,
+    the tool trail, the citation check, token usage. Kept per answer so a
+    demo can be replayed and a bad answer traced back to its evidence.
+    """
+
+    __tablename__ = "assistant_answers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source: Mapped[str] = mapped_column(String, default="api")      # api | ui | demo
+    intent: Mapped[str] = mapped_column(String, nullable=False)     # law | cases | query | agent
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("runs.id", ondelete="SET NULL"), nullable=True
+    )
+    provenance: Mapped[dict] = mapped_column(JSONB, default=dict)
+
+    __table_args__ = (Index("ix_assistant_answers_created", "created_at"),)
+
+
+# =========================================================================== #
+# v3 — webhooks (outbound, via an outbox) and CI events (inbound)
+# =========================================================================== #
+class WebhookSubscription(Base):
+    """Where to send events and which ones. Each subscription signs its
+    deliveries with its own secret (HMAC-SHA256, `X-Legal-Signature-256`)."""
+
+    __tablename__ = "webhook_subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    url: Mapped[str] = mapped_column(String, nullable=False)
+    secret: Mapped[str] = mapped_column(String, nullable=False)
+    events: Mapped[list] = mapped_column(JSONB, default=list)    # ["run.step", "entry.committed", "*"]
+    active: Mapped[bool] = mapped_column(default=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class WebhookDelivery(Base):
+    """The outbox. Written in the same transaction as the event it reports,
+    drained by whichever process gets there first (`FOR UPDATE SKIP LOCKED`).
+    At-least-once: receivers dedupe on `X-Legal-Delivery` (this row's id)."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("webhook_subscriptions.id", ondelete="CASCADE"), nullable=False
+    )
+    event: Mapped[str] = mapped_column(String, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    status: Mapped[str] = mapped_column(String, default="pending")   # pending | sent | failed | dead
+    attempts: Mapped[int] = mapped_column(default=0)
+    next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    response_code: Mapped[int | None] = mapped_column(nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_webhook_deliveries_due", "status", "next_attempt_at"),)
+
+
+class CiEvent(Base):
+    """One CI event as received: a GitHub `workflow_run` / `workflow_job`
+    webhook, a stage report from `scripts/ci_status.sh`, or a replayed fixture.
+    `delivery_id` makes redelivery idempotent."""
+
+    __tablename__ = "ci_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    delivery_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    source: Mapped[str] = mapped_column(String, default="github")    # github | ci-step | replay
+    event: Mapped[str] = mapped_column(String, nullable=False)       # workflow_run | workflow_job | ci_status | ping
+    action: Mapped[str | None] = mapped_column(String, nullable=True)  # requested | in_progress | completed | queued
+    repo: Mapped[str | None] = mapped_column(String, nullable=True)
+    workflow_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    job_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    stage: Mapped[str | None] = mapped_column(String, nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    run_number: Mapped[int | None] = mapped_column(nullable=True)
+    head_sha: Mapped[str | None] = mapped_column(String, nullable=True)
+    head_branch: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str | None] = mapped_column(String, nullable=True)      # queued | in_progress | completed
+    conclusion: Mapped[str | None] = mapped_column(String, nullable=True)  # success | failure | cancelled | …
+    html_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_ci_events_run", "run_id", "received_at"),)

@@ -1,0 +1,953 @@
+[
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34692266338:run:requested",
+  "payload": {
+   "action": "requested",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34692266338,
+    "name": "docker",
+    "run_number": 3,
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338",
+    "run_started_at": "2026-09-12T11:54:47Z",
+    "updated_at": "2026-09-12T11:56:24Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ },
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34692266338:run:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34692266338,
+    "name": "docker",
+    "run_number": 3,
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338",
+    "run_started_at": "2026-09-12T11:54:47Z",
+    "updated_at": "2026-09-12T11:56:24Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549505051:queued",
+  "payload": {
+   "action": "queued",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549505051,
+    "run_id": 34692266338,
+    "name": "test",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549505051",
+    "started_at": "2026-09-12T11:54:50Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:54:51Z",
+      "completed_at": "2026-09-12T11:54:52Z"
+     },
+     {
+      "name": "Initialize containers",
+      "status": "queued",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:54:52Z",
+      "completed_at": "2026-09-12T11:55:07Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:55:07Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run actions/setup-python@v5",
+      "status": "queued",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run pip install -r docker/requirements-cloud.txt",
+      "status": "queued",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "PostgreSQL 16 client",
+      "status": "queued",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "Insurance edition seeds into an empty pgvector database",
+      "status": "queued",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:44Z"
+     },
+     {
+      "name": "Every API endpoint answers (scripts/check.sh)",
+      "status": "queued",
+      "conclusion": null,
+      "number": 8,
+      "started_at": "2026-09-12T11:55:44Z",
+      "completed_at": "2026-09-12T11:55:45Z"
+     },
+     {
+      "name": "Every UI section renders (scripts/ui_smoke.py)",
+      "status": "queued",
+      "conclusion": null,
+      "number": 9,
+      "started_at": "2026-09-12T11:55:45Z",
+      "completed_at": "2026-09-12T11:55:51Z"
+     },
+     {
+      "name": "The packaged archive restores and migrates",
+      "status": "queued",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:55:51Z",
+      "completed_at": "2026-09-12T11:55:54Z"
+     },
+     {
+      "name": "Post Run actions/setup-python@v5",
+      "status": "queued",
+      "conclusion": null,
+      "number": 18,
+      "started_at": "2026-09-12T11:55:54Z",
+      "completed_at": "2026-09-12T11:55:57Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 19,
+      "started_at": "2026-09-12T11:55:57Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Stop containers",
+      "status": "queued",
+      "conclusion": null,
+      "number": 20,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 21,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549505051:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549505051,
+    "run_id": 34692266338,
+    "name": "test",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549505051",
+    "started_at": "2026-09-12T11:54:50Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:54:51Z",
+      "completed_at": "2026-09-12T11:54:52Z"
+     },
+     {
+      "name": "Initialize containers",
+      "status": "completed",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:54:52Z",
+      "completed_at": "2026-09-12T11:55:07Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:55:07Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run actions/setup-python@v5",
+      "status": "completed",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run pip install -r docker/requirements-cloud.txt",
+      "status": "completed",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "PostgreSQL 16 client",
+      "status": "completed",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "Insurance edition seeds into an empty pgvector database",
+      "status": "completed",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:44Z"
+     },
+     {
+      "name": "Every API endpoint answers (scripts/check.sh)",
+      "status": "completed",
+      "conclusion": null,
+      "number": 8,
+      "started_at": "2026-09-12T11:55:44Z",
+      "completed_at": "2026-09-12T11:55:45Z"
+     },
+     {
+      "name": "Every UI section renders (scripts/ui_smoke.py)",
+      "status": "completed",
+      "conclusion": null,
+      "number": 9,
+      "started_at": "2026-09-12T11:55:45Z",
+      "completed_at": "2026-09-12T11:55:51Z"
+     },
+     {
+      "name": "The packaged archive restores and migrates",
+      "status": "completed",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:55:51Z",
+      "completed_at": "2026-09-12T11:55:54Z"
+     },
+     {
+      "name": "Post Run actions/setup-python@v5",
+      "status": "completed",
+      "conclusion": null,
+      "number": 18,
+      "started_at": "2026-09-12T11:55:54Z",
+      "completed_at": "2026-09-12T11:55:57Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 19,
+      "started_at": "2026-09-12T11:55:57Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Stop containers",
+      "status": "completed",
+      "conclusion": null,
+      "number": 20,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 21,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549505051:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549505051,
+    "run_id": 34692266338,
+    "name": "test",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "completed",
+    "conclusion": "success",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549505051",
+    "started_at": "2026-09-12T11:54:50Z",
+    "completed_at": "2026-09-12T11:56:01Z",
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-09-12T11:54:51Z",
+      "completed_at": "2026-09-12T11:54:52Z"
+     },
+     {
+      "name": "Initialize containers",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-09-12T11:54:52Z",
+      "completed_at": "2026-09-12T11:55:07Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-09-12T11:55:07Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run actions/setup-python@v5",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:11Z"
+     },
+     {
+      "name": "Run pip install -r docker/requirements-cloud.txt",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-09-12T11:55:11Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "PostgreSQL 16 client",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:39Z"
+     },
+     {
+      "name": "Insurance edition seeds into an empty pgvector database",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 7,
+      "started_at": "2026-09-12T11:55:39Z",
+      "completed_at": "2026-09-12T11:55:44Z"
+     },
+     {
+      "name": "Every API endpoint answers (scripts/check.sh)",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 8,
+      "started_at": "2026-09-12T11:55:44Z",
+      "completed_at": "2026-09-12T11:55:45Z"
+     },
+     {
+      "name": "Every UI section renders (scripts/ui_smoke.py)",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 9,
+      "started_at": "2026-09-12T11:55:45Z",
+      "completed_at": "2026-09-12T11:55:51Z"
+     },
+     {
+      "name": "The packaged archive restores and migrates",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-09-12T11:55:51Z",
+      "completed_at": "2026-09-12T11:55:54Z"
+     },
+     {
+      "name": "Post Run actions/setup-python@v5",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 18,
+      "started_at": "2026-09-12T11:55:54Z",
+      "completed_at": "2026-09-12T11:55:57Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 19,
+      "started_at": "2026-09-12T11:55:57Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Stop containers",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 20,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 21,
+      "started_at": "2026-09-12T11:55:58Z",
+      "completed_at": "2026-09-12T11:55:58Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549639614:queued",
+  "payload": {
+   "action": "queued",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549639614,
+    "run_id": 34692266338,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549639614",
+    "started_at": "2026-09-12T11:56:03Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:56:04Z",
+      "completed_at": "2026-09-12T11:56:06Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:56:06Z",
+      "completed_at": "2026-09-12T11:56:09Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:56:09Z",
+      "completed_at": "2026-09-12T11:56:13Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:56:13Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "queued",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Tags",
+      "status": "queued",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:18Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "queued",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:56:18Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "queued",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "queued",
+      "conclusion": null,
+      "number": 11,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 12,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "queued",
+      "conclusion": null,
+      "number": 13,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "queued",
+      "conclusion": null,
+      "number": 14,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "queued",
+      "conclusion": null,
+      "number": 15,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549639614:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549639614,
+    "run_id": 34692266338,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549639614",
+    "started_at": "2026-09-12T11:56:03Z",
+    "completed_at": null,
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 1,
+      "started_at": "2026-09-12T11:56:04Z",
+      "completed_at": "2026-09-12T11:56:06Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 2,
+      "started_at": "2026-09-12T11:56:06Z",
+      "completed_at": "2026-09-12T11:56:09Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 3,
+      "started_at": "2026-09-12T11:56:09Z",
+      "completed_at": "2026-09-12T11:56:13Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 4,
+      "started_at": "2026-09-12T11:56:13Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "completed",
+      "conclusion": null,
+      "number": 5,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Tags",
+      "status": "completed",
+      "conclusion": null,
+      "number": 6,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:18Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "completed",
+      "conclusion": null,
+      "number": 7,
+      "started_at": "2026-09-12T11:56:18Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "completed",
+      "conclusion": null,
+      "number": 10,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "completed",
+      "conclusion": null,
+      "number": 11,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 12,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": null,
+      "number": 13,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": null,
+      "number": 14,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": null,
+      "number": 15,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549639614:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549639614,
+    "run_id": 34692266338,
+    "name": "build",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549639614",
+    "started_at": "2026-09-12T11:56:03Z",
+    "completed_at": "2026-09-12T11:56:23Z",
+    "steps": [
+     {
+      "name": "Set up job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 1,
+      "started_at": "2026-09-12T11:56:04Z",
+      "completed_at": "2026-09-12T11:56:06Z"
+     },
+     {
+      "name": "Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 2,
+      "started_at": "2026-09-12T11:56:06Z",
+      "completed_at": "2026-09-12T11:56:09Z"
+     },
+     {
+      "name": "Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 3,
+      "started_at": "2026-09-12T11:56:09Z",
+      "completed_at": "2026-09-12T11:56:13Z"
+     },
+     {
+      "name": "Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 4,
+      "started_at": "2026-09-12T11:56:13Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Log in to GHCR",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 5,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:17Z"
+     },
+     {
+      "name": "Tags",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 6,
+      "started_at": "2026-09-12T11:56:17Z",
+      "completed_at": "2026-09-12T11:56:18Z"
+     },
+     {
+      "name": "Build and push",
+      "status": "completed",
+      "conclusion": "failure",
+      "number": 7,
+      "started_at": "2026-09-12T11:56:18Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Build and push",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 10,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:20Z"
+     },
+     {
+      "name": "Post Log in to GHCR",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 11,
+      "started_at": "2026-09-12T11:56:20Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-buildx-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 12,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:21Z"
+     },
+     {
+      "name": "Post Run docker/setup-qemu-action@v3",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 13,
+      "started_at": "2026-09-12T11:56:21Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Post Run actions/checkout@v4",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 14,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     },
+     {
+      "name": "Complete job",
+      "status": "completed",
+      "conclusion": "success",
+      "number": 15,
+      "started_at": "2026-09-12T11:56:22Z",
+      "completed_at": "2026-09-12T11:56:22Z"
+     }
+    ],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549682979:queued",
+  "payload": {
+   "action": "queued",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549682979,
+    "run_id": 34692266338,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "queued",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549682979",
+    "started_at": "2026-09-12T11:56:24Z",
+    "completed_at": null,
+    "steps": [],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549682979:in_progress",
+  "payload": {
+   "action": "in_progress",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549682979,
+    "run_id": 34692266338,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "in_progress",
+    "conclusion": null,
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549682979",
+    "started_at": "2026-09-12T11:56:24Z",
+    "completed_at": null,
+    "steps": [],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_job",
+  "delivery_id": "cap:34692266338:job:103549682979:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_job": {
+    "id": 103549682979,
+    "run_id": 34692266338,
+    "name": "smoke",
+    "workflow_name": "docker",
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "status": "completed",
+    "conclusion": "skipped",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338/job/103549682979",
+    "started_at": "2026-09-12T11:56:24Z",
+    "completed_at": "2026-09-12T11:56:24Z",
+    "steps": [],
+    "run_attempt": 1
+   }
+  }
+ },
+ {
+  "kind": "workflow_run",
+  "delivery_id": "cap:34692266338:run:completed",
+  "payload": {
+   "action": "completed",
+   "repository": {
+    "full_name": "R445Da/legal_agent"
+   },
+   "workflow_run": {
+    "id": 34692266338,
+    "name": "docker",
+    "run_number": 3,
+    "head_sha": "cfb2d0737c2abe596fe088815222da415ef7f4f8",
+    "head_branch": "v2",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "failure",
+    "html_url": "https://github.com/R445Da/legal_agent/actions/runs/34692266338",
+    "run_started_at": "2026-09-12T11:54:47Z",
+    "updated_at": "2026-09-12T11:56:24Z",
+    "path": ".github/workflows/docker.yml"
+   }
+  }
+ }
+]

@@ -40,8 +40,8 @@ from typing import Awaitable, Callable
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.llm.base import LLMProvider
+from app.llm.meter import MeteredProvider
 from app.rag import runs
-from app.rag.orchestrator import _INTENT_FA
 
 # Step ids, in order. Kept as a constant so the UI and the console agree.
 STEP_IDS = ("classify", "extract", "references", "timeline", "similar", "labels", "commit")
@@ -57,8 +57,11 @@ _STATUS_TERMINAL = {"done", "skipped"}
 #                        and only ask about fields that came back empty
 #   "steps"            — stop at every gate (extract, timeline, similar, labels)
 #   "auto"             — stop for nothing; extract, derive, commit straight through
-RUN_MODES = ("review", "steps", "auto")
-_MODE_FA = {"review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار"}
+#   "conversation"     — like review, but the stop is a chat message: the
+#                        assistant says what it found and asks for what is
+#                        missing; replies are merged by app/rag/conversation.py
+RUN_MODES = ("review", "steps", "auto", "conversation")
+_MODE_FA = {"review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار", "conversation": "گفتگویی"}
 
 # Fields a finished entry really should have. The review gate turns any that are
 # still empty into a small "fill these in" form instead of making you re-check
@@ -74,7 +77,7 @@ REQUIRED_FIELDS = (
 class WorkflowState:
     raw_text: str = ""
     source: str = ""
-    mode: str = "review"                             # review | steps | auto
+    mode: str = "review"                             # review | steps | auto | conversation
     route: dict = field(default_factory=dict)        # {intent, confidence, reason, clarification}
     draft: dict = field(default_factory=dict)        # extract_entry() output, edited at its gate
     timeline: list = field(default_factory=list)     # [{date, title, detail, source}]
@@ -85,6 +88,7 @@ class WorkflowState:
     tool_log: list = field(default_factory=list)     # [{tool, args, summary}] from the similar-step agent
     step_status: dict = field(default_factory=dict)  # {step_id: pending|running|done|failed|awaiting_input}
     entry_id: str | None = None
+    conversation: dict = field(default_factory=dict) # conversation mode: turns, pending, rounds (conversation.py)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -378,8 +382,8 @@ def _pauses_here(step: Step, state: WorkflowState) -> bool:
         return False
     if state.mode == "steps":
         return step.gate
-    # "review": one stop, at `labels` (the last step before commit), where the
-    # whole record is shown at once.
+    # "review" and "conversation": one stop, at `labels` (the last step before
+    # commit), where the whole record is shown — or asked about — at once.
     return step.id == "labels"
 
 
@@ -428,13 +432,17 @@ async def advance(
             status="running",
         )
         t0 = time.perf_counter()
+        # One meter per step: whatever the step spends on the model lands in
+        # its payload, so the console can price each stage.
+        meter = MeteredProvider(llm)
         try:
-            result = await step.run(state, llm, session)
+            result = await step.run(state, meter, session)
         except Exception as error:  # noqa: BLE001 — surfaced to the user for retry
             state.step_status[step.id] = "failed"
             await runs.record_step(
                 session, run_id, seq=index + 1, step_id=step.id, label=step.label,
                 status="failed", error=f"{type(error).__name__}: {error}",
+                payload=_usage_payload({}, meter),
                 ms=round((time.perf_counter() - t0) * 1000),
             )
             await runs.save_state(session, run_id, state.to_dict(), status="failed")
@@ -449,7 +457,7 @@ async def advance(
             await runs.record_step(
                 session, run_id, seq=index + 1, step_id=step.id, label=step.label,
                 status="awaiting_input", detail=result.detail,
-                payload=_payload(step.id, state), ms=ms,
+                payload=_usage_payload(_payload(step.id, state), meter), ms=ms,
             )
             await runs.save_state(session, run_id, state.to_dict(), status="awaiting_input")
             return await runs.load_run(session, run_id)
@@ -458,7 +466,7 @@ async def advance(
         await runs.record_step(
             session, run_id, seq=index + 1, step_id=step.id, label=step.label,
             status=result.status, detail=result.detail,
-            payload=_payload(step.id, state), ms=ms,
+            payload=_usage_payload(_payload(step.id, state), meter), ms=ms,
         )
 
     await runs.save_state(session, run_id, state.to_dict(), status="committed")
@@ -469,6 +477,13 @@ async def advance(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+def _usage_payload(payload: dict, meter: MeteredProvider) -> dict:
+    """The step's payload plus what it cost, when it called the model at all."""
+    if meter.usage.calls:
+        return {**payload, "usage": meter.usage.to_dict()}
+    return payload
+
+
 def _payload(step_id: str, state: WorkflowState) -> dict:
     if step_id == "labels":
         # In "review" mode this gate shows the whole record at once, so its
@@ -482,6 +497,27 @@ def _payload(step_id: str, state: WorkflowState) -> dict:
                 "similar": state.similar,
                 "references": state.references,
                 "missing": _missing_required(state),
+                "tool_log": state.tool_log,
+            })
+        elif state.mode == "conversation":
+            from app.rag import conversation
+
+            # The first pause writes the opening question into the state; the
+            # caller persists it with save_state() right after. Later pauses
+            # come from conversation.turn(), which appends its own question.
+            if not (state.conversation or {}).get("turns"):
+                missing = conversation.missing_paths(state)
+                state.conversation = {
+                    "turns": [{"role": "assistant", "text": conversation.propose_message(state), "asked": missing}],
+                    "pending": missing, "skipped": [], "rounds": 0, "confirmed": False,
+                }
+            base.update({
+                "mode": "conversation",
+                "draft": state.draft,
+                "references": state.references,
+                "missing": _missing_required(state),
+                "message": [t for t in state.conversation["turns"] if t["role"] == "assistant"][-1]["text"],
+                "conversation": state.conversation,
             })
         return base
     return {

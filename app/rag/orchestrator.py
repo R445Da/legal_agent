@@ -32,12 +32,13 @@ from app.rag.retriever import retrieve_scored
 # The five things a message can be. `chat` and `unclear` are new: without them
 # the router's fallback default was `archive`, so any statement it could not
 # place became a proposed Entry — greetings, tasks, half-typed fragments and all.
-VALID_INTENTS = {"query", "law", "cases", "archive", "analytics", "chat", "unclear"}
+VALID_INTENTS = {"query", "law", "cases", "agent", "archive", "analytics", "chat", "unclear"}
 
 _INTENT_FA = {
     "query": "پرسش از اسناد",
     "law": "پرسش از قوانین",
     "cases": "جستجوی بایگانی پرونده‌ها",
+    "agent": "پژوهش عاملی",
     "archive": "ثبت مطلب جدید",
     "analytics": "آمار آرشیو",
     "chat": "گفت‌وگو",
@@ -449,8 +450,74 @@ async def corpus_stats(session: AsyncSession) -> dict:
 
 
 
+async def attach_provenance(
+    session: AsyncSession, llm: LLMProvider, intent: str, question: str, res: dict, *,
+    source: str = "api", persist: bool = True,
+) -> dict:
+    """Add the `provenance` block (and persist the answer) to a law / cases /
+    query result. The evidence is whatever that route numbered `[n]`."""
+    from app.rag import provenance as prov
+
+    if intent == "law":
+        evidence = prov.evidence_from_refs(res.get("refs") or [])
+    elif intent == "cases":
+        evidence = prov.evidence_from_cases(res.get("cases") or [])
+    else:
+        evidence = prov.evidence_from_contexts(res.get("contexts") or [])
+    # The similar-case stage numbers its cases after the route's own evidence
+    # and its advice cites them — one ledger, one check.
+    evidence = evidence + list(res.get("similar_evidence") or [])
+    checked = res.get("answer") or ""
+    if res.get("advice"):
+        checked += "\n\n" + res["advice"]
+    usage = dict(res.get("usage") or {})
+    for key, value in (res.get("advice_usage") or {}).items():
+        if isinstance(value, (int, float)):
+            usage[key] = usage.get(key, 0) + value
+    block = prov.build_provenance(
+        intent=intent, provider=getattr(llm, "name", None), model=res.get("model"),
+        evidence=evidence, tool_trail=res.get("tool_log") or [], usage=usage,
+        answer=checked, latency_ms=res.get("latency_ms"),
+        extra={"similar_cases": len(res.get("similar_cases") or [])} if res.get("similar_cases") else None,
+    )
+    res["provenance"] = block
+    if persist:
+        res["answer_id"] = await prov.persist_answer(
+            session, intent=intent, question=question, answer=checked,
+            provenance=block, model=res.get("model"), source=source,
+        )
+    return block
+
+
+async def similar_stage(session: AsyncSession, llm: LLMProvider, intent: str, question: str, res: dict) -> dict:
+    """Run the similar-case stage for a finished law / cases / query result and
+    merge its keys (`similar_cases`, `lessons`, `advice`, …) into `res`."""
+    from app.rag import similar
+
+    if not similar.enabled() or not res.get("answer"):
+        return res
+    kwargs: dict = {}
+    if intent == "law":
+        kwargs = {"refs": res.get("refs") or [], "offset": len(res.get("refs") or [])}
+    elif intent == "cases":
+        kwargs = {"seed_cases": res.get("cases") or [], "offset": len(res.get("cases") or [])}
+    else:
+        contexts = res.get("contexts") or []
+        kwargs = {"seed_document_ids": [c.get("document_id") for c in contexts if c.get("document_id")],
+                  "offset": len(contexts)}
+    try:
+        extra = await similar.stage(session, llm, question=question, answer=res["answer"], **kwargs)
+    except Exception as error:  # noqa: BLE001 — the answer stands without the second stage
+        extra = {"steps": [{"name": "پرونده‌های مشابه از گراف", "detail": f"ناموفق: {type(error).__name__}: {error}"[:200]}]}
+    steps = list(res.get("steps") or []) + list(extra.pop("steps", []) or [])
+    res.update(extra)
+    res["steps"] = steps
+    return res
+
+
 async def run_assistant(
-    session: AsyncSession, llm: LLMProvider, text: str, *, force_intent: str | None = None
+    session: AsyncSession, llm: LLMProvider, text: str, *, force_intent: str | None = None,
+    source: str = "api",
 ) -> dict:
     import time as _t
 
@@ -497,28 +564,46 @@ async def run_assistant(
             "steps": steps,
         }
 
+    if intent == "query" and os.environ.get("AGENT_FOR_QUERY", "0") == "1":
+        intent = "agent"
+
+    if intent == "agent":
+        from app.rag.agent import answer_with_tools
+
+        res = await answer_with_tools(session, llm, text, source=source)
+        return {"intent": "agent", **res, "steps": steps + res.get("steps", [])}
+
     if intent == "law":
         from app.rag.lawbase import answer_law_question
 
         res = await answer_law_question(session, llm, text)
+        await similar_stage(session, llm, "law", text, res)
+        await attach_provenance(session, llm, "law", text, res, source=source)
         return {"intent": "law", **res, "steps": steps + res.get("steps", [])}
 
     if intent == "cases":
         from app.rag.casebase import answer_case_question
 
         res = await answer_case_question(session, llm, text)
+        await similar_stage(session, llm, "cases", text, res)
+        await attach_provenance(session, llm, "cases", text, res, source=source)
         return {"intent": "cases", **res, "steps": steps + res.get("steps", [])}
 
     if intent == "query":
-        res = await answer_question(session, llm, text, top_k=5)
-        return {
-            "intent": "query",
-            "answer": res.answer,
-            "contexts": res.contexts,
-            "model": res.model,
-            "latency_ms": res.latency_ms,
-            "steps": steps + res.steps,
+        rag = await answer_question(session, llm, text, top_k=5)
+        res = {
+            "answer": rag.answer,
+            "contexts": rag.contexts,
+            "model": rag.model,
+            "latency_ms": rag.latency_ms,
+            "usage": {"calls": 1, "input_tokens": rag.input_tokens or 0,
+                      "output_tokens": rag.output_tokens or 0, "latency_ms": round(rag.latency_ms or 0)},
+            "reasoning": rag.reasoning,
+            "steps": rag.steps,
         }
+        await similar_stage(session, llm, "query", text, res)
+        await attach_provenance(session, llm, "query", text, res, source=source)
+        return {"intent": "query", **res, "steps": steps + res["steps"]}
 
     if intent == "archive":
         _s = _t.perf_counter()
@@ -651,6 +736,17 @@ async def commit_entry(
             value=tag, labeled_by="pipeline",
         ))
 
+    from app.rag import hooks
+
+    queued = await hooks.emit(session, "entry.committed", {
+        "entry_id": str(entry.id), "title": entry.title, "source": source,
+        "case_number": (entry.entities or {}).get("case_number"),
+        "case_id": str(entry.case_id) if entry.case_id else None,
+        "document_id": str(entry.document_id) if entry.document_id else None,
+        "tags": tags, "legal_refs": len(refs),
+    })
     await session.commit()
     await session.refresh(entry)
+    if queued:
+        hooks.drain_soon(session)
     return entry

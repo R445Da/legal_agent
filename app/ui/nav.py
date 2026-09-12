@@ -36,6 +36,8 @@ SECTIONS = [
     ("laws", "۱۵", "قوانین و مستندات"),
     ("entities", "۱۶", "اشخاص و سازمان‌ها"),
     ("editor", "۱۷", "ویرایش مدخل‌ها"),
+    ("gallery", "۱۸", "نمایشگاه طراحی"),
+    ("webhooks", "۱۹", "وب‌هوک‌ها و CI"),
 ]
 
 _LABELS = {sid: (num, label) for sid, num, label in SECTIONS}

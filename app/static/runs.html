@@ -86,6 +86,7 @@ pre{background:#132029;color:#D9E4DC;border-radius:8px;padding:12px 14px;font-fa
   </div>
 
   <div id="banner"></div>
+  <div id="ci"></div>
   <div id="view"></div>
 </div>
 
@@ -115,8 +116,8 @@ const esc = s => String(s==null?"":s).replace(/[&<>]/g, c => ({"&":"&amp;","<":"
 const banner = msg => { document.getElementById("banner").innerHTML =
   msg ? `<div class="err-banner">${esc(msg)}</div>` : ""; };
 
-const STEP_FA = {classify:"تشخیص نوع", extract:"استخراج ساختاریافته", timeline:"خط زمان",
-  similar:"پرونده‌های مشابه", labels:"برچسب‌ها", commit:"ثبت در آرشیو"};
+const STEP_FA = {classify:"تشخیص نوع", extract:"استخراج ساختاریافته", references:"مستندات قانونی",
+  timeline:"خط زمان", similar:"پرونده‌های مشابه", labels:"برچسب‌ها", commit:"ثبت در آرشیو"};
 const STATUS_FA = {running:"در حال اجرا", awaiting_input:"در انتظار تأیید شما", committed:"ثبت شد",
   failed:"ناموفق", abandoned:"رها شده", pending:"در صف"};
 const fmtTime = s => { try { return new Date(s).toLocaleString("fa-IR"); } catch(e){ return s||""; } };
@@ -152,7 +153,14 @@ function payloadHTML(step){
       `<div class="call">${esc(r.date||"—")} · ${esc(r.title||"")}</div>`).join("") || '<span class="muted">—</span>'}</div>`;
   }
   if (step.step_id === "labels"){
-    return `<div class="toollog">${(p.labels||[]).map(l => `<span class="stamp committed" style="margin:3px 4px 0 0">${esc(l)}</span>`).join("") || "—"}</div>`;
+    const labels = `<div class="toollog">${(p.labels||[]).map(l => `<span class="stamp committed" style="margin:3px 4px 0 0">${esc(l)}</span>`).join("") || "—"}</div>`;
+    if (p.mode === "conversation"){
+      const turns = ((p.conversation||{}).turns||[]).map(t =>
+        `<div class="call"><b style="font-size:11px">${t.role === "user" ? "کاربر" : "دستیار"}</b><br>${esc(t.text).replace(/\n/g,"<br>")}</div>`).join("");
+      const usage = p.usage ? `<div class="muted" style="font-size:11px;margin-top:6px">توکن: ${p.usage.input_tokens||0} ورودی · ${p.usage.output_tokens||0} خروجی</div>` : "";
+      return `<div class="toollog"><b style="font-size:11px">گفتگوی ثبت</b>${turns}</div>` + labels + usage;
+    }
+    return labels;
   }
   return `<pre>${esc(JSON.stringify(p, null, 2))}</pre>`;
 }
@@ -166,7 +174,7 @@ function iconFor(st){
 }
 
 function renderDetail(view){
-  const stepIds = ["classify","extract","timeline","similar","labels","commit"];
+  const stepIds = ["classify","extract","references","timeline","similar","labels","commit"];
   const bySeq = {}; (view.steps||[]).forEach(s => bySeq[s.step_id] = s);
   const steps = stepIds.map((sid, i) => bySeq[sid] || {seq:i+1, step_id:sid, status:"pending"});
 
@@ -214,11 +222,41 @@ async function runDetail(id){
   } catch(e){}
 }
 
+// --- CI strip: the latest pipeline runs, live over SSE ---------------------
+const CI_FA = {success:"موفق", failure:"ناموفق", cancelled:"لغو شد"};
+const ciStamp = (status, conclusion) => {
+  const cls = status === "completed" ? (conclusion === "success" ? "committed" : conclusion === "failure" ? "failed" : "abandoned")
+            : (status === "in_progress" ? "running" : "awaiting_input");
+  const label = status === "completed" ? (CI_FA[conclusion] || "تمام شد") : (status === "in_progress" ? "در حال اجرا" : "در صف");
+  return `<span class="stamp ${cls}"><span class="dotc"></span>${label}</span>`;
+};
+function renderCI(runs){
+  const el = document.getElementById("ci");
+  if (!runs || !runs.length){ el.innerHTML = ""; return; }
+  const rows = runs.slice(0,4).map(r => {
+    const jobs = (r.jobs||[]).map(j => `<span style="margin-inline-start:6px">${esc(j.name)} ${ciStamp(j.status, j.conclusion)}</span>`).join("");
+    const running = (r.jobs||[]).flatMap(j => j.stages||[]).find(s => s.status === "in_progress");
+    return `<div class="run-row" style="cursor:default">
+      <div><div class="t">${esc(r.workflow||"docker")} #${r.run_number||""} · ${esc(r.branch||"")} <span class="mono" style="font-size:10.5px;color:var(--gray)">${esc((r.sha||"").slice(0,7))}</span></div>
+        <div class="d">${running ? "در حال اجرا: " + esc(running.name) : ""}${r.html_url ? ` <a href="${esc(r.html_url)}" target="_blank">↗</a>` : ""}</div></div>
+      <div>${ciStamp(r.status, r.conclusion)} ${jobs}</div></div>`;
+  }).join("");
+  el.innerHTML = `<div class="panel"><div class="panel-head"><h3>خط لولهٔ CI</h3><span class="mono" style="font-size:11px;color:var(--gray)">زنده</span></div><div class="panel-body">${rows}</div></div>`;
+}
+async function ciStrip(){
+  try { renderCI((await api("/ci/events?limit=4")).runs); } catch(e){ return; }
+  try {
+    const es = new EventSource(withTok("/ci/events/stream?limit=4"));
+    es.onmessage = ev => { try { renderCI(JSON.parse(ev.data).runs); } catch(e){} };
+    es.onerror = () => es.close();
+  } catch(e){}
+}
+
 (async function(){
   if (!TOKEN) document.getElementById("tokline").style.display = "flex";
   try {
     const id = routeId();
-    if (id) await runDetail(id); else await renderList();
+    if (id) await runDetail(id); else { await renderList(); ciStrip(); }
   } catch(e){ banner(e.message); }
 })();
 </script>

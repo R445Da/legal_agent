@@ -8,11 +8,17 @@
 
 # Embedded PostgreSQL cluster (pgserver writes here; churns on every request)
 .pgdata/
+.pgdata-*/
 
 # Python
 .venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Per-machine Claude Code permissions
+.claude/settings.local.json
 
 # Model / tool caches
 .fastembed_cache/

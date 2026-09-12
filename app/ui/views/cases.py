@@ -12,7 +12,7 @@ from app.rag import casebase, graph
 from app.rag.casebase import STATUS_FA
 from app.ui import aio, components
 from app.ui.resources import session
-from app.ui.theme import card, case_id, chips, esc, fa_num, kv, panel, stamp, timeline
+from app.ui.theme import card, case_id, chips, esc, fa_num, kv, timeline
 
 # The archive's role keys (casebase.ROLE_FA) plus the older English ones the
 # first extractions used, so neither renders as a raw key.

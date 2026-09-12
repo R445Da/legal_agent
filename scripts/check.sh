@@ -34,6 +34,21 @@ check "entries"         '\['                   "${AUTH[@]}" "$BASE/entries"
 check "documents"       '\['                   "${AUTH[@]}" "$BASE/documents"
 check "eval"            '"metrics"'            "${AUTH[@]}" -X POST "$BASE/eval" \
       -H 'content-type: application/json' -d '{"top_k":5}'
+check "assistant law + provenance" '"provenance"' "${AUTH[@]}" -X POST "$BASE/assistant" \
+      -H 'content-type: application/json' -d '{"intent":"law","text":"ماده ۳۰ قانون بیمه چه می‌گوید؟"}'
+check "assistant law + similar cases" '"similar_cases"' "${AUTH[@]}" -X POST "$BASE/assistant" \
+      -H 'content-type: application/json' -d '{"intent":"law","text":"ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟"}'
+check "assistant agent"  '"tool_trail"'         "${AUTH[@]}" -X POST "$BASE/assistant" \
+      -H 'content-type: application/json' -d '{"intent":"agent","text":"پرونده‌های بازیافت از رانندهٔ مقصر طبق ماده ۱۶ چطور تمام شده‌اند؟"}'
+check "answers"         '"answers"'            "${AUTH[@]}" "$BASE/answers?limit=5"
+check "run start (conversation)" '"waiting":true' "${AUTH[@]}" -X POST "$BASE/runs" \
+      -H 'content-type: application/json' -d '{"mode":"conversation","text":"صورت‌جلسه شعبه ۱. خواهان شرکت الف با وکالت آقای کریمی، خوانده آقای مرادی. موضوع: مطالبه وجه. قاضی به کارشناسی ارجاع داد."}'
+check "hooks list"      '"hooks"'              "${AUTH[@]}" "$BASE/hooks"
+check "ci status post"  '"ok":true'            "${AUTH[@]}" -X POST "$BASE/ci/status" \
+      -H 'content-type: application/json' -d '{"run_id":"check","run_number":"1","job":"test","stage":"api-check","status":"in_progress","branch":"local","sha":"0000000"}'
+check "ci events"       '"runs"'               "${AUTH[@]}" "$BASE/ci/events"
+check "github hook needs secret or 503" '503\|401' -o /dev/null -w '%{http_code}' -X POST "$BASE/hooks/github" \
+      -H 'content-type: application/json' -H 'X-GitHub-Event: ping' -d '{}'
 check "auth enforced"   '401'                  -o /dev/null -w '%{http_code}' -X POST "$BASE/ask" \
       -H 'content-type: application/json' -d '{"question":"x"}'
 

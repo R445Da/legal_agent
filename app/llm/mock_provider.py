@@ -69,18 +69,42 @@ class MockProvider(LLMProvider):
                        tool_choice: str = "auto", **knobs) -> LLMResponse:
         t0 = time.perf_counter()
         sys_l = (system or "").lower()
+        # The research agent: ask for the archive first, answer on the next
+        # round — so the tool loop, the evidence ledger and the citation check
+        # all run offline exactly as they would with a real model.
+        if tools and "archive research agent" in sys_l and "you called tools and received" not in prompt.lower():
+            calls = self._agent_calls(prompt, tools)
+            return LLMResponse(text="", model=f"mock/{self.model}", tool_calls=calls or None,
+                               stop_reason="tool_use" if calls else "end_turn",
+                               input_tokens=len(prompt) // 4, output_tokens=0,
+                               latency_ms=(time.perf_counter() - t0) * 1000)
         if "route a message" in sys_l:
             text = self._route(prompt)
         elif "extract structured data" in sys_l:
             text = self._extract(prompt)
         elif "propose" in sys_l and "label" in sys_l:
             text = json.dumps({"labels": []}, ensure_ascii=False)
+        elif "merge a user's reply" in sys_l:
+            text = self._merge(prompt)
         else:
             text = self._answer(prompt, system or "")
         return LLMResponse(text=text, model=f"mock/{self.model}", input_tokens=len(prompt) // 4,
                            output_tokens=len(text) // 4, latency_ms=(time.perf_counter() - t0) * 1000)
 
     # ------------------------------------------------------------------ #
+    @staticmethod
+    def _agent_calls(prompt: str, tools) -> list[dict]:
+        """One archive search, plus a statute search when an article is named."""
+        offered = {t.get("name") for t in tools or []}
+        question = prompt.split("Question:", 1)[-1].strip() if "Question:" in prompt else prompt.strip()
+        question = question.splitlines()[0][:200] if question else ""
+        calls = []
+        if "search_cases" in offered:
+            calls.append({"id": "call_1", "name": "search_cases", "arguments": {"query": question, "limit": 6}})
+        if "search_law" in offered and re.search(r"(?:ماد[هۀ]|تبصر[هۀ])\s*[0-9۰-۹]+|قانون", question):
+            calls.append({"id": "call_2", "name": "search_law", "arguments": {"query": question, "limit": 4}})
+        return calls
+
     def _route(self, prompt: str) -> str:
         msg = prompt.split("Message:", 1)[-1].strip()
         q = any(m in msg for m in ("؟", "?", "چه ", "چیست", "کدام", "چطور", "چگونه", "آیا", "نشان بده"))
@@ -151,6 +175,32 @@ class MockProvider(LLMProvider):
             "legal_refs": uniq,
             "tags": [t for t in [m_line.group(1).strip() if m_line else "", "بیمه"] if t],
         }
+        return json.dumps(data, ensure_ascii=False)
+
+    def _merge(self, prompt: str) -> str:
+        """Conversation mode: read labelled lines and a case number out of the
+        user's reply — the same shape a real model returns for MERGE_SCHEMA."""
+        reply = prompt.split("User reply:", 1)[-1].split("Respond with JSON only", 1)[0].strip()
+        low = reply.lower()
+        ent: dict = {}
+        data: dict = {"title": None, "summary": None, "entities": ent,
+                      "confirm": any(w in low for w in ("تأیید", "تایید", "ثبت کن", "درست است")) and len(reply) < 40,
+                      "cancel": any(w in low for w in ("انصراف", "لغو")) and len(reply) < 40, "note": None}
+        labels = {"عنوان": ("title", None), "خلاصه": ("summary", None), "مرجع": (None, "court"),
+                  "دادگاه": (None, "court"), "نوع دعوا": (None, "case_type"), "رشته": (None, "insurance_line"),
+                  "نتیجه": (None, "outcome"), "وضعیت": (None, "status")}
+        for line in reply.splitlines():
+            m = re.match(r"^\s*([^:：]{2,24}?)\s*[:：]\s*(.+?)\s*$", line)
+            if not m:
+                continue
+            top, key = labels.get(m.group(1).strip(), (None, None))
+            if top:
+                data[top] = m.group(2)
+            elif key:
+                ent[key] = m.group(2)
+        m = _CASE_NO.search(reply)
+        if m:
+            ent["case_number"] = _digits(m.group(1))
         return json.dumps(data, ensure_ascii=False)
 
     def _answer(self, prompt: str, system: str) -> str:

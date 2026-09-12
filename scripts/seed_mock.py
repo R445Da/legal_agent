@@ -25,7 +25,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from app.config import settings  # noqa: E402  (loads .env first)
+import app.config  # noqa: E402,F401  (loads .env first)
 from app.rag.orchestrator import CASE_TYPES  # noqa: E402
 
 LAWS = pathlib.Path("data/laws/laws.json")

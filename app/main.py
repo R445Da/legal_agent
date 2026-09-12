@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.db.engine import create_schema, resolve_database_url
-from app.db.models import Chunk, Document, Entry, Label
+from app.db.models import AssistantAnswer, Chunk, Document, Entry, Label
 from app.llm import registry
 from app.llm.factory import get_llm_provider
 from app.rag.bench import NothingIndexed, run_bench
@@ -35,9 +37,10 @@ from app.rag.orchestrator import (
     find_related,
     run_assistant,
 )
-from app.rag.pipeline import SYSTEM_PROMPT, answer_question, build_prompt
+from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
-from app.rag import casebase, catalog, graph, lawbase
+from app.rag import casebase, catalog, ci, conversation, graph, hooks, lawbase, workflow
+from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
 
@@ -47,12 +50,25 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+async def _drain_loop(interval: float = 3.0) -> None:
+    """Send due webhook deliveries on a timer — including the ones the
+    Streamlit process queued but could not send itself."""
+    while True:
+        try:
+            await hooks.drain(SessionLocal)
+        except Exception:  # noqa: BLE001 — keep the timer alive
+            pass
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await create_schema(engine)
     app.state.llm = get_llm_provider()
     app.state.model_id = registry.default_id()
+    app.state.drain_task = asyncio.create_task(_drain_loop())
     yield
+    app.state.drain_task.cancel()
     await engine.dispose()
 
 
@@ -87,8 +103,19 @@ async def require_run_access(
     raise HTTPException(401, "Missing or invalid API token")
 
 
+async def require_ci_token(authorization: str | None = Header(default=None)):
+    """POST /ci/status: the CI_STATUS_TOKEN secret, or the API token."""
+    accepted = {t for t in (os.environ.get("CI_STATUS_TOKEN"), settings.api_token) if t}
+    if not accepted:
+        return
+    if authorization and authorization.startswith("Bearer ") and authorization[7:] in accepted:
+        return
+    raise HTTPException(401, "Missing or invalid CI token")
+
+
 auth = [Depends(require_token)]
 run_auth = [Depends(require_run_access)]
+ci_auth = [Depends(require_ci_token)]
 
 
 # --------------------------------------------------------------------------- #
@@ -130,6 +157,8 @@ class AskResponse(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     steps: list[dict] = []  # pipeline trace: [{name, detail, ms}]
+    provenance: dict | None = None  # evidence, citation check, usage (app/rag/provenance.py)
+    answer_id: str | None = None
 
 
 class SearchRequest(BaseModel):
@@ -365,7 +394,18 @@ async def ask(req: AskRequest):
             session, llm, req.question, top_k=req.top_k,
             collection=req.collection, filters=req.filters,
         )
-        return AskResponse(**result.__dict__)
+        evidence = prov.evidence_from_contexts(result.contexts)
+        block = prov.build_provenance(
+            intent="query", provider=llm.name, model=result.model, evidence=evidence,
+            usage={"calls": 1, "input_tokens": result.input_tokens or 0,
+                   "output_tokens": result.output_tokens or 0},
+            answer=result.answer, latency_ms=result.latency_ms,
+        )
+        answer_id = await prov.persist_answer(
+            session, intent="query", question=req.question, answer=result.answer,
+            provenance=block, model=result.model,
+        )
+        return AskResponse(**result.__dict__, provenance=block, answer_id=answer_id)
 
 
 @app.post("/search", response_model=SearchResponse, dependencies=auth)
@@ -640,8 +680,12 @@ async def document_detail(document_id: str):
 # --------------------------------------------------------------------------- #
 class AssistantRequest(BaseModel):
     text: str
-    intent: str | None = None  # "query" | "archive" | "analytics" to skip the router
+    # query | law | cases | agent | archive | analytics | chat — skips the router.
+    intent: str | None = None
     model: str | None = None
+    # With intent="archive": start a persisted pipeline run in this mode
+    # (review | steps | auto | conversation) instead of returning a bare draft.
+    mode: str | None = None
 
 
 class CommitRequest(BaseModel):
@@ -659,7 +703,63 @@ async def assistant(req: AssistantRequest):
     if not llm.is_available():
         raise HTTPException(503, "LLM provider is not available.")
     async with SessionLocal() as session:
+        if req.intent == "archive" and req.mode:
+            return await _start_run(session, llm, req.text, mode=req.mode, source=None)
         return await run_assistant(session, llm, req.text, force_intent=req.intent)
+
+
+def _run_reply(view: dict) -> dict:
+    """A run view plus the conversation's next question, when it is waiting."""
+    return {"run": view, "waiting": conversation.is_waiting(view),
+            "message": conversation.last_question(view) if conversation.is_waiting(view) else None}
+
+
+async def _start_run(session, llm, text: str, *, mode: str, source: str | None) -> dict:
+    import datetime as _dt
+
+    if mode not in workflow.RUN_MODES:
+        raise HTTPException(422, f"mode must be one of {', '.join(workflow.RUN_MODES)}")
+    view = await workflow.start(
+        session, raw_text=text, source=source or f"api/{_dt.datetime.now():%Y%m%d-%H%M%S}",
+        llm=llm, mode=mode, forced_intent="archive",
+    )
+    return {"intent": "archive", **_run_reply(view)}
+
+
+class RunStartRequest(BaseModel):
+    text: str
+    source: str | None = None
+    mode: str = "review"   # review | steps | auto | conversation
+    model: str | None = None
+
+
+class RunReplyRequest(BaseModel):
+    text: str
+    model: str | None = None
+
+
+@app.post("/runs", dependencies=auth)
+async def runs_start(req: RunStartRequest):
+    """Start a persisted entry-building run (the same engine the chat uses).
+    In `conversation` mode the response carries the assistant's question;
+    answer it with POST /runs/{run_id}/reply."""
+    llm = _llm(req.model)
+    if not llm.is_available():
+        raise HTTPException(503, "LLM provider is not available.")
+    async with SessionLocal() as session:
+        return await _start_run(session, llm, req.text, mode=req.mode, source=req.source)
+
+
+@app.post("/runs/{run_id}/reply", dependencies=auth)
+async def runs_reply(run_id: str, req: RunReplyRequest):
+    """One turn of a conversation-mode run: merge the reply, re-ask or commit."""
+    llm = _llm(req.model)
+    async with SessionLocal() as session:
+        try:
+            view = await conversation.turn(session, run_id, llm, req.text)
+        except ValueError as error:
+            raise HTTPException(409, str(error)) from error
+        return _run_reply(view)
 
 
 @app.post("/assistant/commit", dependencies=auth)
@@ -672,6 +772,28 @@ async def assistant_commit(req: CommitRequest):
             "document_id": str(entry.document_id) if entry.document_id else None,
             "related_ids": entry.related_ids,
         }
+
+
+@app.get("/answers", dependencies=auth)
+async def answers_list(
+    limit: int = Query(default=50, ge=1, le=500), intent: str | None = None,
+):
+    """Answered questions with their provenance blocks, newest first."""
+    async with SessionLocal() as session:
+        query = select(AssistantAnswer).order_by(AssistantAnswer.created_at.desc()).limit(limit)
+        if intent:
+            query = query.where(AssistantAnswer.intent == intent)
+        rows = (await session.execute(query)).scalars().all()
+    return {"answers": [prov.answer_view(r) for r in rows]}
+
+
+@app.get("/answers/{answer_id}", dependencies=auth)
+async def answers_detail(answer_id: str):
+    async with SessionLocal() as session:
+        row = await session.get(AssistantAnswer, answer_id)
+    if row is None:
+        raise HTTPException(404, "No such answer")
+    return prov.answer_view(row)
 
 
 @app.get("/stats", dependencies=auth)
@@ -836,6 +958,34 @@ async def patch_case(case_id: str, patch: dict = Body(...)):
         return row
 
 
+@app.get("/cases/{case_id}/similar", dependencies=auth)
+async def case_similar(case_id: str, top_k: int = Query(default=5, ge=1, le=20)):
+    """Cases resembling this one — shared articles, parties, court, labels,
+    prior SIMILAR_TO links — each with the reasons and the graph path."""
+    from app.rag import similar
+
+    async with SessionLocal() as session:
+        case = await casebase.get_case(session, case_id)
+        if not case:
+            raise HTTPException(404, "No such case")
+        items = await similar.similar_cases(
+            session, question=f"{case.get('title') or ''} {case.get('summary') or ''}",
+            anchor_case_id=case["id"], top_k=top_k,
+        )
+        return {"case": {"id": case["id"], "case_number": case["case_number"], "title": case["title"]},
+                "similar": items, "lessons": similar.outcome_lessons(items)}
+
+
+@app.get("/graph/expand", dependencies=auth)
+async def graph_expand(node_type: str, node_id: str, depth: int = Query(default=2, ge=1, le=3)):
+    """Cases connected to any node through shared articles, parties, courts or
+    labels, scored and explained (the model's `graph_expand` tool)."""
+    from app.rag import similar
+
+    async with SessionLocal() as session:
+        return await similar.expand_for_tool(session, node_type, node_id, depth=depth)
+
+
 @app.get("/cases/{case_id}/graph", dependencies=auth)
 async def case_graph(case_id: str, depth: int = 1, format: str = "json"):
     async with SessionLocal() as session:
@@ -906,6 +1056,130 @@ async def delete_document(document_id: str):
         await session.delete(doc)
         await session.commit()
     return {"deleted": document_id}
+
+
+# --------------------------------------------------------------------------- #
+# Webhooks — outbound subscriptions (signed, via the outbox) and inbound CI
+# --------------------------------------------------------------------------- #
+class HookCreate(BaseModel):
+    url: str
+    events: list[str] = ["*"]      # run.step | run.status | entry.committed | answer.created | ping | *
+    description: str | None = None
+    secret: str | None = None      # generated when omitted; returned once
+
+
+@app.post("/hooks", dependencies=auth)
+async def hooks_create(req: HookCreate):
+    """Register a URL. The response carries the signing secret — the only
+    time it is shown. Deliveries carry `X-Legal-Signature-256: sha256=<hmac>`."""
+    async with SessionLocal() as session:
+        try:
+            sub = await hooks.create_subscription(
+                session, url=req.url, events=req.events, description=req.description, secret=req.secret,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return hooks.subscription_view(sub, with_secret=True)
+
+
+@app.get("/hooks", dependencies=auth)
+async def hooks_list():
+    async with SessionLocal() as session:
+        return {"hooks": [hooks.subscription_view(s) for s in await hooks.list_subscriptions(session)],
+                "events": list(hooks.EVENTS)}
+
+
+@app.delete("/hooks/{subscription_id}", dependencies=auth)
+async def hooks_delete(subscription_id: str):
+    async with SessionLocal() as session:
+        if not await hooks.delete_subscription(session, subscription_id):
+            raise HTTPException(404, "No such subscription")
+    return {"deleted": subscription_id}
+
+
+@app.post("/hooks/{subscription_id}/test", dependencies=auth)
+async def hooks_test(subscription_id: str):
+    """Queue a `ping` for one subscription and send it now."""
+    async with SessionLocal() as session:
+        sub = await session.get(hooks.WebhookSubscription, subscription_id)
+        if sub is None:
+            raise HTTPException(404, "No such subscription")
+        delivery = hooks.WebhookDelivery(subscription_id=sub.id, event="ping",
+                                         payload={"message": "سلام از آرشیو حقوقی", "subscription_id": str(sub.id)},
+                                         status="pending", attempts=0)
+        session.add(delivery)
+        await session.commit()
+        delivery_id = delivery.id
+    await hooks.drain(SessionLocal)
+    async with SessionLocal() as session:
+        row = await session.get(hooks.WebhookDelivery, delivery_id)
+        return hooks.delivery_view(row)
+
+
+@app.get("/hooks/deliveries", dependencies=auth)
+async def hooks_deliveries(subscription_id: str | None = None, status: str | None = None,
+                           limit: int = Query(default=50, ge=1, le=500)):
+    async with SessionLocal() as session:
+        rows = await hooks.list_deliveries(session, subscription_id=subscription_id, status=status, limit=limit)
+        return {"deliveries": [hooks.delivery_view(d) for d in rows]}
+
+
+@app.post("/hooks/github")
+async def hooks_github(request: Request):
+    """GitHub → here. Verified with GITHUB_WEBHOOK_SECRET (503 while unset);
+    `ping`, `workflow_run` and `workflow_job` are stored, others ignored."""
+    secret = os.environ.get("GITHUB_WEBHOOK_SECRET", "")
+    if not secret:
+        raise HTTPException(503, "GITHUB_WEBHOOK_SECRET is not configured")
+    body = await request.body()
+    if not hooks.verify(secret, body, request.headers.get("x-hub-signature-256")):
+        raise HTTPException(401, "Bad signature")
+    event = request.headers.get("x-github-event", "")
+    delivery_id = request.headers.get("x-github-delivery") or f"github:{hooks.new_secret()[:16]}"
+    if event not in ("ping", "workflow_run", "workflow_job"):
+        return {"ignored": event}
+    try:
+        payload = json.loads(body.decode("utf-8") or "{}")
+    except json.JSONDecodeError as error:
+        raise HTTPException(400, "Body is not JSON") from error
+    async with SessionLocal() as session:
+        stored = await ci.record_github(session, delivery_id=delivery_id, event=event, payload=payload)
+        await session.commit()
+    return {"stored": stored, "event": event, "delivery_id": delivery_id}
+
+
+@app.post("/ci/status", dependencies=ci_auth)
+async def ci_status(body: dict = Body(...)):
+    """A stage report from the workflow (`scripts/ci_status.sh`):
+    {run_id, run_number, job, stage, status, conclusion?, sha, branch, url, ts}."""
+    async with SessionLocal() as session:
+        stored = await ci.record_status(session, body, source=body.get("source") or "ci-step")
+        await session.commit()
+    return {"ok": True, "stored": stored}
+
+
+@app.get("/ci/events", dependencies=run_auth)
+async def ci_events(limit: int = Query(default=10, ge=1, le=50)):
+    """The latest CI runs with their jobs and stages, newest first."""
+    async with SessionLocal() as session:
+        return {"runs": await ci.list_ci_runs(session, limit=limit)}
+
+
+@app.get("/ci/events/stream", dependencies=run_auth)
+async def ci_events_stream(limit: int = Query(default=5, ge=1, le=20)):
+    """SSE: the run list, re-sent whenever it changes (2 s polling)."""
+    async def _stream():
+        last = None
+        for _ in range(900):  # 30 min ceiling
+            async with SessionLocal() as session:
+                runs = await ci.list_ci_runs(session, limit=limit)
+            fingerprint = [(r["run_id"], r["updated_at"], r["status"], r["conclusion"]) for r in runs]
+            if fingerprint != last:
+                last = fingerprint
+                yield f"data: {json.dumps({'runs': runs}, ensure_ascii=False, default=str)}\n\n"
+            await asyncio.sleep(2)
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
 
 
 # --------------------------------------------------------------------------- #

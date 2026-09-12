@@ -7,9 +7,8 @@ reads with no web-framework content, so they belong here — the Streamlit UI
 imports them directly and `app/main.py` calls the same functions.
 """
 
-import math
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

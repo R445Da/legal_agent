@@ -18,12 +18,19 @@ is a 400 error if you get it wrong on a 4.6-or-later model:
    The app's existing `reasoning_effort` knob maps straight onto `effort`, and
    `display: "summarized"` is what fills `LLMResponse.reasoning` so the chat's
    «استدلال مدل» panel has something to show.
+
+v3 adds the multi-turn `chat()`: assistant turns are replayed as the exact
+content blocks Claude produced (thinking signatures and `tool_use` ids
+included), every tool result goes back as a `tool_result` block in ONE user
+message (parallel calls must be answered together), tools are sent `strict`
+and sorted so the prefix is stable, and with `cache=True` the system prompt
+and the newest tool results carry `cache_control` breakpoints.
 """
 
 import os
 import time
 
-from .base import LLMProvider, LLMResponse
+from .base import LLMProvider, LLMResponse, strict_schema
 
 DEFAULT_MODEL = "claude-opus-5"
 
@@ -37,6 +44,10 @@ _EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 _JSON_HINT = "Respond with JSON only — no prose, no code fences."
 
+# `any` (forced tool use) is rejected by the newest models; the loop never
+# asks for it, but a caller that does gets the closest legal value.
+_TOOL_CHOICE = {"auto": "auto", "none": "none", "any": "any"}
+
 
 def _takes_temperature(model: str) -> bool:
     return any(model.startswith(prefix) for prefix in _SAMPLING_OK)
@@ -44,6 +55,9 @@ def _takes_temperature(model: str) -> bool:
 
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
+    supports_native_tools = True
+    supports_json_schema = True
+    supports_prompt_cache = True
 
     def __init__(self, model: str | None = None, api_key: str | None = None):
         self.model = model or os.environ.get("ANTHROPIC_MODEL") or DEFAULT_MODEL
@@ -61,19 +75,23 @@ class AnthropicProvider(LLMProvider):
         return bool(self.api_key)
 
     # ---------------------------------------------------------------- request
-    def _body(self, prompt, system, max_tokens, temperature, json_mode,
-              tools, tool_choice, reasoning_effort, json_schema) -> dict:
+    def _static(self, system, max_tokens, temperature, json_mode, tools,
+                tool_choice, reasoning_effort, json_schema, cache) -> dict:
+        """Everything in the request except `messages` — shared by generate(),
+        chat() and stream(). Rendered in the order the API caches it:
+        tools → system → messages, so one breakpoint on the system block
+        caches the tool list too."""
         system_text = system or ""
         if json_mode and not tools and not json_schema and _JSON_HINT not in system_text:
             system_text = (system_text + "\n\n" + _JSON_HINT).strip()
 
-        body: dict = {
-            "model": self.model,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
+        body: dict = {"model": self.model, "max_tokens": max_tokens}
         if system_text:
-            body["system"] = system_text
+            if cache:
+                body["system"] = [{"type": "text", "text": system_text,
+                                   "cache_control": {"type": "ephemeral"}}]
+            else:
+                body["system"] = system_text
         if temperature is not None and _takes_temperature(self.model):
             body["temperature"] = temperature
 
@@ -90,13 +108,64 @@ class AnthropicProvider(LLMProvider):
             body["output_config"] = output_config
 
         if tools:
-            body["tools"] = [
-                {"name": t["name"], "description": t.get("description", ""),
-                 "input_schema": t.get("parameters", {"type": "object", "properties": {}})}
-                for t in tools
-            ]
-            body["tool_choice"] = {"type": "auto" if tool_choice == "auto" else "any"}
+            body["tools"] = [self._tool_def(t) for t in sorted(tools, key=lambda t: t["name"])]
+            body["tool_choice"] = {"type": _TOOL_CHOICE.get(tool_choice, "auto")}
         return body
+
+    @staticmethod
+    def _tool_def(tool: dict) -> dict:
+        params = tool.get("parameters", {"type": "object", "properties": {}})
+        strict = bool(tool.get("strict", True))
+        out = {"name": tool["name"], "description": tool.get("description", ""),
+               "input_schema": strict_schema(params) if strict else params}
+        if strict:
+            out["strict"] = True
+        return out
+
+    @staticmethod
+    def _messages(transcript: list[dict], cache: bool) -> list[dict]:
+        """The neutral transcript as Claude message blocks."""
+        out: list[dict] = []
+        results: list[dict] = []
+
+        def flush() -> None:
+            if results:
+                out.append({"role": "user", "content": list(results)})
+                results.clear()
+
+        for message in transcript:
+            role = message.get("role")
+            if role == "tool":
+                block = {"type": "tool_result", "tool_use_id": str(message.get("tool_call_id")),
+                         "content": str(message.get("content") or "")}
+                if message.get("is_error"):
+                    block["is_error"] = True
+                results.append(block)
+                continue
+            flush()
+            if role == "user":
+                out.append({"role": "user", "content": str(message.get("content", ""))})
+            elif role == "assistant":
+                if message.get("turn"):
+                    out.append({"role": "assistant", "content": message["turn"]})
+                    continue
+                blocks: list[dict] = []
+                if message.get("content"):
+                    blocks.append({"type": "text", "text": str(message["content"])})
+                for call in message.get("tool_calls") or []:
+                    blocks.append({"type": "tool_use", "id": str(call.get("id")),
+                                   "name": call["name"], "input": call.get("arguments") or {}})
+                if blocks:
+                    out.append({"role": "assistant", "content": blocks})
+        flush()
+
+        # Second breakpoint: the newest tool results, so the next round re-reads
+        # only what was added after them.
+        if cache and out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+            last = dict(out[-1]["content"][-1])
+            last["cache_control"] = {"type": "ephemeral"}
+            out[-1]["content"][-1] = last
+        return out
 
     @staticmethod
     def _collect(content) -> tuple[str, str, list[dict]]:
@@ -153,6 +222,33 @@ class AnthropicProvider(LLMProvider):
             f"(category: {category}). Rephrase, or pick another model."
         )
 
+    def _finish(self, response, start: float, max_tokens: int) -> LLMResponse:
+        self._refusal(response)
+        text, thinking, calls = self._collect(response.content)
+
+        if not text and not calls and response.stop_reason == "max_tokens":
+            raise RuntimeError(
+                f"{self.model}: hit max_tokens ({max_tokens}) before writing an "
+                "answer — thinking consumed the budget. Raise the output cap, or "
+                "lower «میزان استدلال»."
+            )
+
+        usage = getattr(response, "usage", None)
+        return LLMResponse(
+            text=text,
+            model=self.model,
+            input_tokens=getattr(usage, "input_tokens", None),
+            output_tokens=getattr(usage, "output_tokens", None),
+            latency_ms=(time.perf_counter() - start) * 1000,
+            reasoning=thinking or None,
+            tool_calls=calls or None,
+            raw=response.model_dump(),
+            stop_reason=getattr(response, "stop_reason", None),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", None),
+            turn=[block.model_dump(exclude_none=True) for block in (response.content or [])],
+        )
+
     # --------------------------------------------------------------- generate
     async def generate(
         self,
@@ -166,33 +262,40 @@ class AnthropicProvider(LLMProvider):
         tool_choice: str = "auto",
         reasoning_effort: str | None = None,
         json_schema: dict | None = None,
+        cache: bool = False,
         **_ignored,
     ) -> LLMResponse:
         client = self._get_client()
         start = time.perf_counter()
-        body = self._body(prompt, system, max_tokens, temperature, json_mode,
-                          tools, tool_choice, reasoning_effort, json_schema)
+        body = self._static(system, max_tokens, temperature, json_mode, tools,
+                            tool_choice, reasoning_effort, json_schema, cache)
+        body["messages"] = [{"role": "user", "content": prompt}]
         response = await self._send(lambda: client.messages.create(**body))
-        self._refusal(response)
-        text, thinking, calls = self._collect(response.content)
+        return self._finish(response, start, max_tokens)
 
-        if not text and not calls and response.stop_reason == "max_tokens":
-            raise RuntimeError(
-                f"{self.model}: hit max_tokens ({max_tokens}) before writing an "
-                "answer — thinking consumed the budget. Raise the output cap, or "
-                "lower «میزان استدلال»."
-            )
-
-        return LLMResponse(
-            text=text,
-            model=self.model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
-            latency_ms=(time.perf_counter() - start) * 1000,
-            reasoning=thinking or None,
-            tool_calls=calls or None,
-            raw=response.model_dump(),
-        )
+    # ------------------------------------------------------------------- chat
+    async def chat(
+        self,
+        messages: list[dict],
+        *,
+        system: str | None = None,
+        tools: list[dict] | None = None,
+        tool_choice: str = "auto",
+        max_tokens: int = 1024,
+        temperature: float = 0.0,
+        json_schema: dict | None = None,
+        cache: bool = False,
+        json_mode: bool = False,
+        reasoning_effort: str | None = None,
+        **_ignored,
+    ) -> LLMResponse:
+        client = self._get_client()
+        start = time.perf_counter()
+        body = self._static(system, max_tokens, temperature, json_mode, tools,
+                            tool_choice, reasoning_effort, json_schema, cache)
+        body["messages"] = self._messages(messages, cache)
+        response = await self._send(lambda: client.messages.create(**body))
+        return self._finish(response, start, max_tokens)
 
     # ----------------------------------------------------------------- stream
     async def stream(
@@ -214,8 +317,9 @@ class AnthropicProvider(LLMProvider):
         """
         client = self._get_client()
         start = time.perf_counter()
-        body = self._body(prompt, system, max_tokens, temperature, json_mode,
-                          None, "auto", reasoning_effort, json_schema)
+        body = self._static(system, max_tokens, temperature, json_mode,
+                            None, "auto", reasoning_effort, json_schema, False)
+        body["messages"] = [{"role": "user", "content": prompt}]
 
         answer, thinking = [], []
         final = None
@@ -249,5 +353,8 @@ class AnthropicProvider(LLMProvider):
                 latency_ms=(time.perf_counter() - start) * 1000,
                 reasoning="".join(thinking) or None,
                 raw={},
+                stop_reason=getattr(final, "stop_reason", None),
+                cache_read_tokens=getattr(usage, "cache_read_input_tokens", None),
+                cache_write_tokens=getattr(usage, "cache_creation_input_tokens", None),
             ),
         }

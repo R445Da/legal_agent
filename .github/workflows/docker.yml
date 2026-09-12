@@ -24,6 +24,11 @@ on:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  # Live CI in the app: set these two repository secrets to a reachable
+  # deployment and scripts/ci_status.sh reports every stage there. Unset =
+  # every report is a silent no-op.
+  CI_STATUS_URL: ${{ secrets.CI_STATUS_URL }}
+  CI_STATUS_TOKEN: ${{ secrets.CI_STATUS_TOKEN }}
 
 jobs:
   test:
@@ -60,6 +65,7 @@ jobs:
       API_TOKEN: citoken
     steps:
       - uses: actions/checkout@v4
+      - run: scripts/ci_status.sh test start in_progress
 
       - uses: actions/setup-python@v5
         with:
@@ -67,7 +73,13 @@ jobs:
           cache: pip
           cache-dependency-path: docker/requirements-cloud.txt
 
-      - run: pip install -r docker/requirements-cloud.txt
+      - run: pip install -r docker/requirements-cloud.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: scripts/ci_status.sh test lint in_progress && ruff check app scripts tests && scripts/ci_status.sh test lint completed success
+
+      - name: Unit tests (no database)
+        run: scripts/ci_status.sh test unit in_progress && python -m pytest -q -m "not db" && scripts/ci_status.sh test unit completed success
 
       # docker/seed.dump is a PG 16 custom archive (format 1.15); an older
       # pg_restore refuses it outright.
@@ -81,21 +93,28 @@ jobs:
 
       - name: Insurance edition seeds into an empty pgvector database
         run: |
+          scripts/ci_status.sh test seed in_progress
           python -m scripts.seed_mock --reset --n 40
           n=$(psql "$DATABASE_URL" -tAc 'select count(*) from legal_cases')
           [ "$n" = "40" ] || { echo "::error::expected 40 cases, got $n"; exit 1; }
+          scripts/ci_status.sh test seed completed success
+
+      - name: Database tests (seeded archive, offline model)
+        run: scripts/ci_status.sh test db-tests in_progress && python -m pytest -q -m db && scripts/ci_status.sh test db-tests completed success
 
       - name: Every API endpoint answers (scripts/check.sh)
         run: |
+          scripts/ci_status.sh test api-check in_progress
           uvicorn app.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
           for _ in $(seq 1 60); do
             curl -sf -o /dev/null http://127.0.0.1:8000/health && break
             sleep 1
           done
           BASE=http://127.0.0.1:8000 scripts/check.sh || { cat api.log; exit 1; }
+          scripts/ci_status.sh test api-check completed success
 
       - name: Every UI section renders (scripts/ui_smoke.py)
-        run: python -m scripts.ui_smoke
+        run: scripts/ci_status.sh test ui-smoke in_progress && python -m scripts.ui_smoke && scripts/ci_status.sh test ui-smoke completed success
 
       # The path Codespaces takes: the packaged archive into a fresh database,
       # then the migrations the dump predates. The dump's vectors carry the
@@ -116,6 +135,12 @@ jobs:
           cols=$(psql "$url" -tAc "select count(*) from information_schema.columns
                  where table_name='entries' and column_name in ('related','legal_refs','case_id','text_search')")
           [ "$cols" = "4" ] || { echo "::error::entries is missing upgraded columns ($cols/4)"; exit 1; }
+          tables=$(psql "$url" -tAc "select count(*) from information_schema.tables
+                 where table_name in ('assistant_answers','webhook_subscriptions','webhook_deliveries','ci_events')")
+          [ "$tables" = "4" ] || { echo "::error::v3 tables missing ($tables/4)"; exit 1; }
+
+      - if: always()
+        run: scripts/ci_status.sh test finish completed ${{ job.status }}
 
   build:
     needs: test
@@ -126,6 +151,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - run: scripts/ci_status.sh build start in_progress
 
       - uses: docker/setup-qemu-action@v3        # lets x86 runners emit ARM64
       - uses: docker/setup-buildx-action@v3
@@ -165,12 +191,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - if: always()
+        run: scripts/ci_status.sh build finish completed ${{ job.status }}
+
   smoke:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: scripts/ci_status.sh smoke start in_progress
 
       # The one thing worth asserting in CI: the image refuses to start without
       # a database rather than coming up broken.
@@ -181,3 +211,6 @@ jobs:
           echo "$out"
           echo "$out" | grep -q "DATABASE_URL is unset" \
             || { echo "::error::image did not refuse a missing DATABASE_URL"; exit 1; }
+
+      - if: always()
+        run: scripts/ci_status.sh smoke finish completed ${{ job.status }}

@@ -19,11 +19,12 @@ nothing may be written to the archive without that confirmation.
 import datetime as dt
 
 import streamlit as st
-from sqlalchemy import or_, select
 
-from app.db.models import Entry
+from app.llm.meter import usage_of
+from app.rag import conversation
+from app.rag import provenance as prov
 from app.rag import runs, transcribe as stt, workflow
-from app.rag.orchestrator import _INTENT_FA, corpus_stats, route
+from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route, similar_stage
 from app.rag.ingest import get_document
 from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
@@ -31,7 +32,7 @@ from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
 from app.ui import aio, components, data
 from app.ui.resources import session
-from app.ui.theme import card, case_id, chips, esc, fa_num, kv, stamp
+from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
 _EXAMPLES = [
     "ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟",
@@ -213,12 +214,137 @@ def _answer_from_archive(cfg: dict, text: str) -> None:
             "استدلال» را کم کنید."
         )
 
+    res = {
+        "answer": text_out, "contexts": contexts, "model": final.model if final else cfg["model_id"],
+        "latency_ms": final.latency_ms if final else None, "usage": usage_of([final]) if final else {},
+        "steps": [],
+    }
+    extra = _similar_after(cfg, "query", text, res)
+    _show_similar(extra, offset=len(contexts), key_prefix="live_query")
+    block = prov.build_provenance(
+        intent="query", provider=getattr(_active_llm(cfg), "name", None),
+        model=res["model"],
+        evidence=prov.evidence_from_contexts(contexts) + list(res.get("similar_evidence") or []),
+        usage=res["usage"], answer=text_out + ("\n\n" + res["advice"] if res.get("advice") else ""),
+        latency_ms=res["latency_ms"],
+    )
+    _persist_answer("query", text, text_out, block, model=final.model if final else None)
+    components.provenance_panel(block, key_prefix="live_query")
+
     _say(
         "assistant", intent="query", text=text_out,
         reasoning="".join(thoughts) or None,
         contexts=contexts, trace=trace,
-        model=final.model if final else cfg["model_id"],
-        latency_ms=final.latency_ms if final else None,
+        model=res["model"],
+        latency_ms=res["latency_ms"],
+        provenance=block, **extra,
+    )
+
+
+def _similar_after(cfg: dict, intent: str, question: str, res: dict) -> dict:
+    """Run the similar-case stage on a finished answer (in place) and return
+    the keys worth keeping on the chat message."""
+    async def _go():
+        async with session() as s:
+            await similar_stage(s, _active_llm(cfg), intent, question, res)
+
+    try:
+        with st.spinner("در جستجوی پرونده‌های مشابه در گراف…"):
+            aio.run(_go())
+    except Exception as error:  # noqa: BLE001 — the answer stands without it
+        res.setdefault("steps", []).append({"name": "پرونده‌های مشابه", "detail": f"ناموفق: {error}"[:160]})
+    return {k: res[k] for k in ("similar_cases", "lessons", "advice") if res.get(k)}
+
+
+def _show_similar(message: dict, *, offset: int, key_prefix: str) -> None:
+    """Draw the similar-case panel; a click opens the case in «پرونده‌ها»."""
+    clicked = components.similar_cases_panel(
+        message.get("similar_cases"), message.get("lessons"), message.get("advice"),
+        key_prefix=key_prefix, offset=offset,
+    )
+    if clicked:
+        st.session_state["open_case"] = clicked
+        st.session_state["view"] = "cases"
+        st.rerun()
+
+
+def _persist_answer(intent: str, question: str, answer: str, block: dict, *, model: str | None) -> None:
+    """Record the answer + provenance; a storage hiccup must not lose the reply."""
+    async def _go():
+        async with session() as s:
+            return await prov.persist_answer(
+                s, intent=intent, question=question, answer=answer, provenance=block,
+                model=model, source="ui",
+            )
+    try:
+        aio.run(_go())
+    except Exception:  # noqa: BLE001 — best-effort bookkeeping
+        pass
+
+
+def _answer_with_agent(cfg: dict, text: str) -> None:
+    """The «پژوهش عاملی» route: the model researches with the read-only tools,
+    each call shown as it happens, then answers from the numbered evidence."""
+    from app.rag.agent import AGENT_SYSTEM, steps_from
+    from app.rag.tools import EvidenceLedger, iter_with_tools
+
+    llm = _active_llm(cfg)
+    ledger = EvidenceLedger()
+    holder: dict = {}
+
+    async def _events():
+        async with session() as s:
+            async for event in iter_with_tools(
+                llm, s, f"Question: {text}", system=AGENT_SYSTEM, max_rounds=4,
+                max_tokens=cfg.get("max_tokens") or 1400, ledger=ledger,
+            ):
+                yield event
+
+    started = dt.datetime.now()
+    with st.status("عامل در حال پژوهش در آرشیو…", expanded=True) as status:
+        for event in aio.iterate(_events()):
+            kind = event["type"]
+            if kind == "round":
+                st.caption(f"دور {fa_num(event['round'])}")
+            elif kind == "tool_call":
+                args = "، ".join(f"{k}={v}" for k, v in (event.get("args") or {}).items() if v not in (None, ""))
+                st.markdown(
+                    f"<div class='kv'><span class='k mono'>{esc(event['tool'])}</span>"
+                    f"<span>{esc(args)}</span></div>", unsafe_allow_html=True,
+                )
+            elif kind == "tool_result":
+                mark = "⚠️" if event.get("error") else "✓"
+                st.caption(f"{mark} {event['summary']} · {fa_ms(event.get('ms'))}")
+            elif kind == "done":
+                holder["result"] = event["result"]
+        result = holder.get("result")
+        if result is None:
+            status.update(label="عامل پاسخی نداد", state="error")
+            return
+        status.update(
+            label=f"پژوهش تمام شد — {fa_num(len(result.tool_log))} فراخوانی، {fa_num(len(result.evidence))} شاهد",
+            state="complete",
+        )
+
+    total_ms = (dt.datetime.now() - started).total_seconds() * 1000
+    block = prov.build_provenance(
+        intent="agent", provider=getattr(llm, "name", None), model=result.model,
+        evidence=result.evidence, tool_trail=result.tool_log, usage=result.usage,
+        answer=result.text, latency_ms=total_ms,
+        extra={"loop": result.mode, "rounds": result.rounds},
+    )
+    _persist_answer("agent", text, result.text, block, model=result.model)
+
+    components.reasoning_panel(result.reasoning)
+    if result.text.strip():
+        st.markdown(f"<div class='answer'>{esc(result.text)}</div>", unsafe_allow_html=True)
+    else:
+        st.warning("عامل ابزارها را فراخواند اما پاسخی ننوشت. سقف توکن خروجی را بالا ببرید.")
+    components.provenance_panel(block, key_prefix="live_agent")
+    components.steps_panel(steps_from(result, round(total_ms)))
+    _say(
+        "assistant", intent="agent", text=result.text, reasoning=result.reasoning,
+        model=result.model, latency_ms=total_ms, provenance=block,
     )
 
 
@@ -268,6 +394,7 @@ def _draft_for_archive(
         "review": "در حال استخراج مدخل — یک بار برای بازبینی می‌ایستد…",
         "steps": "در حال آغاز خط لوله — گام‌به‌گام…",
         "auto": "در حال استخراج و ثبت خودکار مدخل…",
+        "conversation": "در حال استخراج مدخل — آنچه کم باشد را می‌پرسم…",
     }.get(mode, "در حال آغاز خط لوله…")
     with st.status(spinner, expanded=False) as status:
         view = _wf_start(cfg, text, source, mode=mode, forced=forced)
@@ -279,7 +406,61 @@ def _draft_for_archive(
                 label="آمادهٔ بازبینی" if awaiting else "خط لوله آغاز شد",
                 state="complete",
             )
-    _say("assistant", intent="archive", run_id=view["id"])
+    question = conversation.last_question(view) if conversation.is_waiting(view) else None
+    if question:
+        # The next composer message answers this run, not the router.
+        st.session_state["pending_run"] = view["id"]
+    _say("assistant", intent="archive", run_id=view["id"], text=question)
+
+
+def _pending_conversation() -> str | None:
+    """The conversation-mode run waiting for the user's next message, if any.
+
+    The id is cached in session state but re-derived from the transcript on
+    every call, so a rerun or a fresh tab that still holds the chat history
+    resumes the same run; the database decides whether it is really waiting.
+    """
+    run_id = st.session_state.get("pending_run")
+    if not run_id:
+        for message in reversed(_history()):
+            if message.get("role") == "assistant" and message.get("intent") == "archive" and message.get("run_id"):
+                run_id = message["run_id"]
+                break
+    if not run_id:
+        return None
+    if conversation.is_waiting(_wf_load(run_id)):
+        st.session_state["pending_run"] = run_id
+        return run_id
+    st.session_state.pop("pending_run", None)
+    return None
+
+
+def _conversation_turn(cfg: dict, run_id: str, text: str) -> None:
+    """One reply of a «گفتگویی» run: merge it, then either the next question
+    or the committed record shows up as the assistant's message."""
+    async def _go():
+        async with session() as s:
+            return await conversation.turn(s, run_id, cfg["llm"], text)
+
+    with st.status("در حال به‌روزرسانی پیش‌نویس از پاسخ شما…", expanded=False) as status:
+        view = aio.run(_go())
+        label = {"committed": "مدخل ثبت شد", "awaiting_input": "پرسش بعدی",
+                 "abandoned": "ثبت متوقف شد"}.get(view["status"], "ادامهٔ خط لوله")
+        status.update(label=label, state="complete")
+    if not conversation.is_waiting(view):
+        st.session_state.pop("pending_run", None)
+    _say("assistant", intent="archive", run_id=run_id,
+         text=conversation.last_question(view) if conversation.is_waiting(view) else None)
+
+
+def _latest_for_run(index: int, run_id: str | None) -> bool:
+    """Only the newest message of a run draws the live pipeline; older ones
+    keep their question text so the dialogue reads top to bottom."""
+    if not run_id:
+        return True
+    return not any(
+        m.get("run_id") == run_id and i > index for i, m in enumerate(_history())
+    )
 
 
 def _source_preview(cfg: dict) -> None:
@@ -499,6 +680,14 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
     payload = step.get("payload") or {}
     review = sid == "labels" and payload.get("mode") == "review"
 
+    if sid == "labels" and payload.get("mode") == "conversation":
+        st.markdown(
+            "<span class='intent-badge archive'>در انتظار پاسخ شما در گفتگو</span>",
+            unsafe_allow_html=True,
+        )
+        _gate_conversation(cfg, run_id, payload, index)
+        return
+
     heading = "بازبینی نهایی و ثبت" if review else _STEP_FA.get(sid, sid)
     st.markdown(
         f"<span class='intent-badge archive'>در انتظار تأیید شما — {esc(heading)}</span>",
@@ -534,6 +723,48 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
         st.rerun()
     if stop.button("توقف", key=f"wf_stop_{index}_{sid}", use_container_width=True):
         _wf_abandon(run_id)
+        st.rerun()
+
+
+def _gate_conversation(cfg: dict, run_id: str, payload: dict, index: int) -> None:
+    """The «گفتگویی» stop: the assistant's question as a bubble, the draft so
+    far, and the composer as the answer box. No table — the reply is typed
+    in chat and merged by `conversation.turn()`."""
+    message = payload.get("message") or ""
+    st.markdown(
+        f"<div class='answer'>{esc(message).replace(chr(10), '<br>')}</div>",
+        unsafe_allow_html=True,
+    )
+    draft = dict(payload.get("draft") or {})
+    with st.expander("پیش‌نویس فعلی"):
+        _draft_ticket(draft)
+        references = payload.get("references") or []
+        unresolved = [r for r in references if not r.get("resolved")]
+        if unresolved:
+            st.caption(f"{fa_num(len(unresolved))} استناد هنوز به پایگاه قوانین متصل نشده است.")
+    turns = (payload.get("conversation") or {}).get("turns") or []
+    if len(turns) > 1:
+        with st.expander(f"گفتگوی ثبت تا این‌جا ({fa_num(len(turns))} پیام)"):
+            for t in turns:
+                who = "کاربر" if t.get("role") == "user" else "دستیار"
+                st.markdown(
+                    f"<div class='kv'><span class='k'>{who}</span>"
+                    f"<span style='white-space:pre-wrap'>{esc(t.get('text', ''))}</span></div>",
+                    unsafe_allow_html=True,
+                )
+    st.caption("پاسخ را در کادر پایین بنویسید — مثلاً «شمارهٔ پرونده: ۱۴۰۲…»، «رد شو» یا «تأیید».")
+
+    missing = payload.get("missing") or []
+    go, stop = st.columns([3, 1])
+    if not missing and go.button("ثبت همین حالا", key=f"wf_go_{index}_conversation", type="primary",
+                                 use_container_width=True):
+        with st.spinner("در حال ثبت…"):
+            _wf_advance(cfg, run_id, user_patch={"draft": draft})
+        st.session_state.pop("pending_run", None)
+        st.rerun()
+    if stop.button("توقف", key=f"wf_stop_{index}_conversation", use_container_width=True):
+        _wf_abandon(run_id)
+        st.session_state.pop("pending_run", None)
         st.rerun()
 
 
@@ -723,7 +954,15 @@ def _render(cfg: dict, message: dict, index: int) -> None:
                 unsafe_allow_html=True,
             )
         if intent == "archive":
-            _render_pipeline(cfg, message, index)
+            if _latest_for_run(index, message.get("run_id")):
+                _render_pipeline(cfg, message, index)
+            else:
+                if message.get("text"):
+                    st.markdown(
+                        f"<div class='answer'>{esc(message['text']).replace(chr(10), '<br>')}</div>",
+                        unsafe_allow_html=True,
+                    )
+                st.caption("ادامهٔ این ثبت در پیام‌های بعدی است.")
             return
 
         if intent == "unclear":
@@ -793,10 +1032,15 @@ def _render(cfg: dict, message: dict, index: int) -> None:
                         st.session_state["open_case"] = c.get("case_number")
                         st.session_state["view"] = "cases"
                         st.rerun()
+        if message.get("similar_cases"):
+            offset = len(message.get("law_refs") or message.get("case_hits") or message.get("contexts") or [])
+            _show_similar(message, offset=offset, key_prefix=f"history_{index}")
         if message.get("stats"):
             with st.expander("دادهٔ خام"):
                 st.json(message["stats"])
-        if message.get("model"):
+        if message.get("provenance"):
+            components.provenance_panel(message["provenance"], key_prefix=f"history_{index}")
+        elif message.get("model"):
             components.usage_caption(model=message["model"])
 
 
@@ -846,27 +1090,41 @@ def _answer_pending(cfg: dict) -> None:
     # A per-message intent (from a clarification quick-reply) wins over the
     # sidebar selector, which applies to whatever the user types next.
     forced = turn.get("forced_intent") or st.session_state.get("agent_intent") or "auto"
+    # A conversation-mode filing that is waiting for an answer takes the
+    # message before the router does — unless the user pinned another intent.
+    pending = _pending_conversation() if forced in ("auto", "archive") else None
     with st.chat_message("assistant", avatar="⚖️"):
         try:
-            with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
-                decision = aio.run(route(
-                    _active_llm(cfg), text,
-                    forced=None if forced == "auto" else forced,
-                ))
-                status.update(
-                    label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
-                          + f" · مدل: {cfg['entry']['label']}",
-                    state="complete",
+            if pending:
+                st.markdown(
+                    f"<span class='intent-badge archive'>{esc(_INTENT_FA['archive'])} — پاسخ در گفتگو</span>",
+                    unsafe_allow_html=True,
                 )
-            intent = decision.intent
-            st.markdown(
-                f"<span class='intent-badge {intent}'>{esc(_INTENT_FA.get(intent, intent))}</span>",
-                unsafe_allow_html=True,
-            )
-            # Same five-way vocabulary the FastAPI /assistant path uses — the
-            # decision comes from one `route()`, only the execution differs
-            # (streamed here, a dict there).
-            if intent == "unclear":
+                _conversation_turn(cfg, pending, text)
+                intent = "archive"
+                decision = None
+            else:
+                with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
+                    decision = aio.run(route(
+                        _active_llm(cfg), text,
+                        forced=None if forced == "auto" else forced,
+                    ))
+                    status.update(
+                        label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
+                              + f" · مدل: {cfg['entry']['label']}",
+                        state="complete",
+                    )
+                intent = decision.intent
+                st.markdown(
+                    f"<span class='intent-badge {intent}'>{esc(_INTENT_FA.get(intent, intent))}</span>",
+                    unsafe_allow_html=True,
+                )
+            # Same vocabulary the FastAPI /assistant path uses — the decision
+            # comes from one `route()`, only the execution differs (streamed
+            # here, a dict there).
+            if pending:
+                pass
+            elif intent == "unclear":
                 _clarify(decision, text)
             elif intent == "chat":
                 _chat_reply(cfg, text)
@@ -880,6 +1138,8 @@ def _answer_pending(cfg: dict) -> None:
                 _answer_from_laws(cfg, text)
             elif intent == "cases":
                 _answer_from_cases(cfg, text)
+            elif intent == "agent":
+                _answer_with_agent(cfg, text)
             else:
                 _answer_from_archive(cfg, text)
         except Exception as error:  # noqa: BLE001
@@ -897,14 +1157,22 @@ def _answer_from_laws(cfg: dict, text: str) -> None:
 
     async def _go():
         async with session() as s:
-            return await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            res = await answer_law_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await similar_stage(s, _active_llm(cfg), "law", text, res)
+            await attach_provenance(s, _active_llm(cfg), "law", text, res, source="ui")
+            return res
 
-    with st.spinner("در حال جستجو در پایگاه قوانین…"):
+    with st.spinner("در حال جستجو در پایگاه قوانین و پرونده‌های مشابه…"):
         result = aio.run(_go())
+    components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    _show_similar(result, offset=len(result.get("refs") or []), key_prefix="live_law")
+    components.provenance_panel(result.get("provenance"), key_prefix="live_law")
     components.steps_panel(result.get("steps", []))
     _say("assistant", intent="law", text=result.get("answer", ""), law_refs=result.get("refs", []),
-         question=text, model=result.get("model"))
+         question=text, model=result.get("model"), provenance=result.get("provenance"),
+         reasoning=result.get("reasoning"),
+         **{k: result[k] for k in ("similar_cases", "lessons", "advice") if result.get(k)})
 
 
 def _answer_from_cases(cfg: dict, text: str) -> None:
@@ -913,17 +1181,25 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
 
     async def _go():
         async with session() as s:
-            return await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            res = await answer_case_question(s, _active_llm(cfg), text, max_tokens=cfg.get("max_tokens") or 1400)
+            await similar_stage(s, _active_llm(cfg), "cases", text, res)
+            await attach_provenance(s, _active_llm(cfg), "cases", text, res, source="ui")
+            return res
 
     with st.spinner("در حال جستجو در بایگانی پرونده‌ها…"):
         result = aio.run(_go())
+    components.reasoning_panel(result.get("reasoning"))
     st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+    _show_similar(result, offset=len(result.get("cases") or []), key_prefix="live_cases")
+    components.provenance_panel(result.get("provenance"), key_prefix="live_cases")
     components.steps_panel(result.get("steps", []))
     hits = [
         {k: c.get(k) for k in ("id", "case_number", "title", "case_type", "insurance_line", "status_fa", "outcome")}
         for c in result.get("cases", [])
     ]
-    _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"))
+    _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"),
+         provenance=result.get("provenance"), reasoning=result.get("reasoning"),
+         **{k: result[k] for k in ("similar_cases", "lessons", "advice") if result.get(k)})
 
 
 def _chat_reply(cfg: dict, text: str) -> None:
@@ -954,7 +1230,7 @@ def _clarify(decision, text: str) -> None:
 
 
 _WF_MODE_FA = {
-    "review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار",
+    "review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار", "conversation": "گفتگویی",
 }
 
 
@@ -967,20 +1243,24 @@ def _controls(cfg: dict) -> None:
     left, right = st.columns(2)
     with left:
         st.selectbox(
-            "نوع پیام", ["auto", "query", "law", "cases", "archive", "analytics", "chat"],
+            "نوع پیام", ["auto", "query", "law", "cases", "agent", "archive", "analytics", "chat"],
             format_func=lambda k: "تشخیص خودکار" if k == "auto" else _INTENT_FA[k],
             key="agent_intent", label_visibility="collapsed",
-            help="به‌صورت پیش‌فرض سامانه خودش تشخیص می‌دهد؛ می‌توانید دستی تعیین کنید.",
+            help=(
+                "به‌صورت پیش‌فرض سامانه خودش تشخیص می‌دهد؛ می‌توانید دستی تعیین کنید. "
+                "«پژوهش عاملی»: مدل خودش با ابزارهای فقط‌خواندنی در آرشیو جستجو می‌کند."
+            ),
         )
     with right:
         st.selectbox(
-            "حالت ثبت مدخل", ["review", "steps", "auto"],
+            "حالت ثبت مدخل", ["review", "conversation", "steps", "auto"],
             format_func=lambda k: _WF_MODE_FA[k],
             key="wf_mode", label_visibility="collapsed",
             help=(
                 "«تأیید یک‌باره»: همه‌چیز اجرا می‌شود و فقط یک‌بار برای بازبینی "
-                "می‌ایستد و تنها فیلدهای خالی را می‌پرسد. «گام‌به‌گام»: در هر مرحله "
-                "می‌ایستد. «خودکار»: بدون توقف ثبت می‌کند."
+                "می‌ایستد و تنها فیلدهای خالی را می‌پرسد. «گفتگویی»: دستیار می‌گوید چه "
+                "چیزی را برداشته و آنچه کم است را در همین گفتگو می‌پرسد. «گام‌به‌گام»: "
+                "در هر مرحله می‌ایستد. «خودکار»: بدون توقف ثبت می‌کند."
             ),
         )
 
@@ -1031,14 +1311,64 @@ def _composer(cfg: dict) -> None:
         _submit(cfg, typed)
 
 
+def _stage_bar(cfg: dict) -> None:
+    """A demo stage in progress: which prompt is next, and one button to send it
+    with the intent and run mode the stage prescribes."""
+    active = st.session_state.get("stage")
+    if not active:
+        return
+    from app.demo.stages import BY_ID
+
+    stage = BY_ID.get(active.get("id"))
+    if stage is None:
+        st.session_state.pop("stage", None)
+        return
+    step = int(active.get("step", 0))
+    if step >= len(stage.prompts):
+        st.success(f"مرحلهٔ «{stage.title}» تمام شد." + (" بخش‌های مرتبط: " + "، ".join(stage.show) if stage.show else ""))
+        if st.button("پایان مرحله", key="stage_done"):
+            st.session_state.pop("stage", None)
+            st.rerun()
+        return
+    prompt = stage.prompts[step]
+    with st.container(border=True):
+        cols = st.columns([4, 1])
+        cols[0].markdown(
+            f"**{esc(stage.title)}** — گام {fa_num(step + 1)} از {fa_num(len(stage.prompts))}"
+            + (f"<div class='meta'>{esc(prompt.note)}</div>" if prompt.note else "")
+            + f"<div class='meta' style='white-space:pre-wrap'>{esc(prompt.text[:160])}{'…' if len(prompt.text) > 160 else ''}</div>",
+            unsafe_allow_html=True,
+        )
+        if cols[1].button("ارسال این گام", key=f"stage_send_{stage.id}_{step}", type="primary", use_container_width=True):
+            if not prompt.reply:
+                st.session_state["agent_intent"] = prompt.intent or "auto"
+                if prompt.mode:
+                    st.session_state["wf_mode"] = prompt.mode
+            st.session_state["stage"] = {"id": stage.id, "step": step + 1}
+            _submit(cfg, prompt.text)
+        if cols[1].button("لغو", key=f"stage_cancel_{stage.id}_{step}", use_container_width=True):
+            st.session_state.pop("stage", None)
+            st.rerun()
+
+
 def render(cfg: dict, state: dict) -> None:
     """Chips when the conversation is empty, the transcript once it isn't, and
     the composer. Nothing else — this screen is a chat, and the model and
     retrieval controls already live in the left panel."""
     history = _history()
 
+    _stage_bar(cfg)
+
     if not history:
-        st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد.")
+        st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد. یا یکی از مراحل نمایش را آغاز کنید:")
+        from app.demo.stages import STAGES
+
+        runnable = [s for s in STAGES if s.prompts]
+        for column, stage in zip(st.columns(len(runnable)), runnable):
+            if column.button(stage.title, key=f"stage_{stage.id}", use_container_width=True,
+                             help=stage.blurb):
+                st.session_state["stage"] = {"id": stage.id, "step": 0}
+                st.rerun()
         for column, example in zip(st.columns(len(_EXAMPLES)), _EXAMPLES):
             if column.button(example, key=f"ex_{example[:10]}", use_container_width=True):
                 _submit(cfg, example)
