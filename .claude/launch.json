@@ -8,6 +8,18 @@
       "port": 8502
     },
     {
+      "name": "streamlit-wsl",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": ["--cd", "/home/amirswli/legal_agent", "--", ".venv/bin/streamlit", "run", "streamlit_app.py", "--server.port", "8502", "--server.headless", "true"],
+      "port": 8502
+    },
+    {
+      "name": "api-wsl",
+      "runtimeExecutable": "wsl.exe",
+      "runtimeArgs": ["--cd", "/home/amirswli/legal_agent", "--", ".venv/bin/uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
+      "port": 8000
+    },
+    {
       "name": "iran-insurance-legal (React, offline)",
       "runtimeExecutable": "bash",
       "runtimeArgs": ["-c", "VENV=${VENV:-$([ -x .venv/bin/uvicorn ] && echo .venv || echo ../../../.venv)} API_PORT=8010 WEB_PORT=5180 scripts/legal-web.sh --offline"],
