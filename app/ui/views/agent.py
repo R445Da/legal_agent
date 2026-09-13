@@ -30,7 +30,7 @@ from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
 from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
-from app.ui import aio, components, data
+from app.ui import aio, askflow, components, data
 from app.ui.resources import session
 from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
@@ -389,7 +389,7 @@ def _draft_for_archive(
     cfg: dict, text: str, *, source: str | None = None, forced: str | None = None,
 ) -> None:
     source = source or f"assistant/{dt.datetime.now():%Y%m%d-%H%M%S}"
-    mode = st.session_state.get("wf_mode", "review")
+    mode = st.session_state.get("wf_mode", "conversation")
     spinner = {
         "review": "در حال استخراج مدخل — یک بار برای بازبینی می‌ایستد…",
         "steps": "در حال آغاز خط لوله — گام‌به‌گام…",
@@ -449,6 +449,12 @@ def _conversation_turn(cfg: dict, run_id: str, text: str) -> None:
         status.update(label=label, state="complete")
     if not conversation.is_waiting(view):
         st.session_state.pop("pending_run", None)
+    # The engine records a one-line acknowledgement of what the answer did
+    # («شمارهٔ کلاسه ثبت شد.»); it reads as punctuation between questions.
+    turns = ((view.get("state") or {}).get("conversation") or {}).get("turns") or []
+    ack = next((t.get("ack") for t in reversed(turns) if t.get("role") == "user"), "")
+    if ack:
+        _say("assistant", kind="ack", text=ack)
     _say("assistant", intent="archive", run_id=run_id,
          text=conversation.last_question(view) if conversation.is_waiting(view) else None)
 
@@ -602,25 +608,26 @@ def _draft_ticket(draft: dict) -> None:
     )
 
 
-def _stepper(view: dict) -> None:
+def _rail(view: dict) -> None:
+    """The seven steps as one compact horizontal rail.
+
+    The vertical stepper this replaces was taller than the record it described,
+    which pushed the live question off the screen on a laptop. Here the run's
+    shape is one line: a numbered dot per step, filled as it completes. The
+    dimming of what has not been reached is carried over from the first
+    prototype's animated ingest pipeline.
+    """
     by_id = {s["step_id"]: s for s in view["steps"]}
-    rows = ""
+    cells = ""
     for seq, sid in enumerate(_STEP_ORDER, start=1):
-        step = by_id.get(sid, {"seq": seq, "status": "pending"})
+        step = by_id.get(sid, {"status": "pending"})
         status = step["status"]
         icon = _WF_ICON.get(status, fa_num(seq))
-        ms = f"<span class='wf-ms'> · {fa_num(step['ms'])} م‌ث</span>" if step.get("ms") else ""
-        detail = (
-            f"<div class='wf-detail{' err' if status == 'failed' else ''}'>"
-            f"{esc(step.get('error') or step.get('detail') or '')}</div>"
-            if (step.get("detail") or step.get("error")) else ""
+        cells += (
+            f"<div class='rail-cell {status}'><div class='rail-dot'>{icon}</div>"
+            f"<div class='rail-lbl'>{esc(_STEP_FA[sid])}</div></div>"
         )
-        rows += (
-            f"<div class='wf-step {status}'><div class='wf-icon'>{icon}</div>"
-            f"<div style='flex:1;min-width:0'><div class='wf-label'>{fa_num(seq)}. "
-            f"{esc(_STEP_FA[sid])}{ms}</div>{detail}</div></div>"
-        )
-    st.markdown(f"<div class='card'>{rows}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='rail'>{cells}</div>", unsafe_allow_html=True)
 
 
 def _render_pipeline(cfg: dict, message: dict, index: int) -> None:
@@ -630,7 +637,7 @@ def _render_pipeline(cfg: dict, message: dict, index: int) -> None:
         st.error("اجرای خط لوله یافت نشد.")
         return
 
-    _stepper(view)
+    _rail(view)
 
     if view["status"] == "committed":
         entry_id = view.get("entry_id") or ""
@@ -727,21 +734,43 @@ def _render_gate(cfg: dict, run_id: str, step: dict, index: int) -> None:
 
 
 def _gate_conversation(cfg: dict, run_id: str, payload: dict, index: int) -> None:
-    """The «گفتگویی» stop: the assistant's question as a bubble, the draft so
-    far, and the composer as the answer box. No table — the reply is typed
-    in chat and merged by `conversation.turn()`."""
-    message = payload.get("message") or ""
-    st.markdown(
-        f"<div class='answer'>{esc(message).replace(chr(10), '<br>')}</div>",
-        unsafe_allow_html=True,
-    )
-    draft = dict(payload.get("draft") or {})
+    """The «گفتگویی» stop: the question the dialogue is on, its quick replies,
+    and the record as it stands.
+
+    One question, not the whole record — the queue lives in the run state
+    (`app/rag/conversation.py`), so this only has to draw the current step of
+    it. Tapping a chip sends that word as the user's turn, which is the same
+    path as typing it, so the transcript reads the same either way.
+    """
+    question = payload.get("question")
+    if not question:
+        # No queue (an older run, or the dialogue is between questions): fall
+        # back to the opening summary message.
+        st.markdown(
+            f"<div class='answer'>{esc(payload.get('message') or '').replace(chr(10), '<br>')}</div>",
+            unsafe_allow_html=True,
+        )
+    else:
+        conv = payload.get("conversation") or {}
+        step, total = conversation.question_progress(conv)
+        st.markdown(askflow.question_html(question, step=step, total=total),
+                    unsafe_allow_html=True)
+
+        quick = question.get("chips") or []
+        if quick:
+            for column, label in zip(st.columns(len(quick) + 1), quick):
+                if column.button(label, key=f"ask_{index}_{run_id[:8]}_{label}",
+                                 use_container_width=True):
+                    _say("user", text=label)
+                    st.rerun()
+        st.caption("یا پاسخ را در کادر پایین بنویسید.")
+
     with st.expander("پیش‌نویس فعلی"):
-        _draft_ticket(draft)
-        references = payload.get("references") or []
-        unresolved = [r for r in references if not r.get("resolved")]
+        _draft_ticket(dict(payload.get("draft") or {}))
+        unresolved = [r for r in (payload.get("references") or []) if not r.get("resolved")]
         if unresolved:
             st.caption(f"{fa_num(len(unresolved))} استناد هنوز به پایگاه قوانین متصل نشده است.")
+
     turns = (payload.get("conversation") or {}).get("turns") or []
     if len(turns) > 1:
         with st.expander(f"گفتگوی ثبت تا این‌جا ({fa_num(len(turns))} پیام)"):
@@ -752,17 +781,8 @@ def _gate_conversation(cfg: dict, run_id: str, payload: dict, index: int) -> Non
                     f"<span style='white-space:pre-wrap'>{esc(t.get('text', ''))}</span></div>",
                     unsafe_allow_html=True,
                 )
-    st.caption("پاسخ را در کادر پایین بنویسید — مثلاً «شمارهٔ پرونده: ۱۴۰۲…»، «رد شو» یا «تأیید».")
 
-    missing = payload.get("missing") or []
-    go, stop = st.columns([3, 1])
-    if not missing and go.button("ثبت همین حالا", key=f"wf_go_{index}_conversation", type="primary",
-                                 use_container_width=True):
-        with st.spinner("در حال ثبت…"):
-            _wf_advance(cfg, run_id, user_patch={"draft": draft})
-        st.session_state.pop("pending_run", None)
-        st.rerun()
-    if stop.button("توقف", key=f"wf_stop_{index}_conversation", use_container_width=True):
+    if st.button("توقف", key=f"wf_stop_{index}_conversation", use_container_width=False):
         _wf_abandon(run_id)
         st.session_state.pop("pending_run", None)
         st.rerun()
@@ -947,6 +967,13 @@ def _render(cfg: dict, message: dict, index: int) -> None:
         return
 
     with st.chat_message("assistant", avatar="⚖️"):
+        # The dialogue's punctuation: one line confirming what an answer did,
+        # between one question and the next.
+        if message.get("kind") == "ack":
+            st.markdown(f"<div class='ack'>{esc(message.get('text', ''))}</div>",
+                        unsafe_allow_html=True)
+            return
+
         intent = message.get("intent")
         if intent:
             st.markdown(
@@ -1253,14 +1280,14 @@ def _controls(cfg: dict) -> None:
         )
     with right:
         st.selectbox(
-            "حالت ثبت مدخل", ["review", "conversation", "steps", "auto"],
+            "حالت ثبت مدخل", ["conversation", "review", "steps", "auto"],
             format_func=lambda k: _WF_MODE_FA[k],
             key="wf_mode", label_visibility="collapsed",
             help=(
-                "«تأیید یک‌باره»: همه‌چیز اجرا می‌شود و فقط یک‌بار برای بازبینی "
-                "می‌ایستد و تنها فیلدهای خالی را می‌پرسد. «گفتگویی»: دستیار می‌گوید چه "
-                "چیزی را برداشته و آنچه کم است را در همین گفتگو می‌پرسد. «گام‌به‌گام»: "
-                "در هر مرحله می‌ایستد. «خودکار»: بدون توقف ثبت می‌کند."
+                "«گفتگویی» (پیش‌فرض): دستیار یک‌به‌یک می‌پرسد و هر پاسخ یک نوبت "
+                "در همین گفتگوست. «تأیید یک‌باره»: همه‌چیز اجرا می‌شود و یک‌بار برای "
+                "بازبینی می‌ایستد. «گام‌به‌گام»: در هر مرحله می‌ایستد. «خودکار»: بدون "
+                "توقف ثبت می‌کند."
             ),
         )
 

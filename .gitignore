@@ -35,3 +35,6 @@ data/external/
 
 # Runtime logs from scripts/up.sh, scripts/serve.sh
 *.log
+
+# generated knowledge graph (12 MB, rebuilt with `graphify update .`)
+graphify-out/

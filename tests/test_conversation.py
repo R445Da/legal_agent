@@ -69,7 +69,8 @@ FILING = (
 
 
 @pytest.mark.db
-async def test_dialogue_asks_for_case_number_then_commits(db_session):
+async def test_dialogue_walks_its_queue_and_commits(db_session):
+    """The gate is a queue of questions, one per turn, ending at the commit."""
     from sqlalchemy import select
 
     from app.db.models import LegalCase
@@ -80,27 +81,65 @@ async def test_dialogue_asks_for_case_number_then_commits(db_session):
     view = await workflow.start(db_session, raw_text=FILING, source="test/conversation", llm=llm,
                                 mode="conversation", forced_intent="archive")
     assert view["status"] == "awaiting_input" and conversation.is_waiting(view)
-    question = conversation.last_question(view)
-    assert "شمارهٔ پرونده" in question and "از متن شما" in question
-    labels = next(s for s in view["steps"] if s["step_id"] == "labels")
-    assert labels["payload"]["mode"] == "conversation" and labels["payload"]["message"] == question
 
+    # The opening turn still says what was extracted; the queue follows it.
+    labels = next(s for s in view["steps"] if s["step_id"] == "labels")
+    assert labels["payload"]["mode"] == "conversation"
+    assert "از متن شما" in labels["payload"]["message"]
+    queue = view["state"]["conversation"]["queue"]
+    assert [q["id"] for q in queue][:2] == ["title", "entities.case_number"]
+    assert queue[-1]["id"] == "commit"
+    assert conversation.current_question(view["state"]["conversation"])["id"] == "title"
+
+    # A labelled reply lands on the field it names, even though the question on
+    # screen is about the title — and the unanswered question is asked again.
     view = await conversation.turn(db_session, view["id"], llm, "شماره پرونده: ۱۴۰۲۱۱۲۲۳۳")
     assert view["status"] == "awaiting_input"
     assert view["state"]["draft"]["entities"]["case_number"] == "1402112233"
-    assert "چیزی کم نیست" in conversation.last_question(view)
+    assert conversation.current_question(view["state"]["conversation"])["id"] == "title"
 
-    view = await conversation.turn(db_session, view["id"], llm, "تأیید")
+    # Now walk the rest of the queue: «تأیید» answers whatever is asked, and
+    # the last question files the record.
+    for _ in range(len(queue) + 4):
+        if view["status"] != "awaiting_input":
+            break
+        view = await conversation.turn(db_session, view["id"], llm, "تأیید")
+
     assert view["status"] == "committed" and view["entry_id"]
-    turns = view["state"]["conversation"]["turns"]
-    assert [t["role"] for t in turns] == ["assistant", "user", "assistant", "user"]
-    assert view["state"]["conversation"]["confirmed"] is True
+    conv = view["state"]["conversation"]
+    assert conv["confirmed"] is True
+    assert conversation.current_question(conv) is None
+    # Every question got its own pair of turns.
+    assert [t["role"] for t in conv["turns"]][:3] == ["assistant", "user", "assistant"]
 
     row = await db_session.scalar(select(LegalCase).where(LegalCase.case_number == "1402112233"))
     assert row is not None
 
     with pytest.raises(ValueError):
         await conversation.turn(db_session, view["id"], llm, "دوباره")
+
+
+@pytest.mark.db
+async def test_a_chip_answer_costs_no_model_call(db_session):
+    """Answering the question on screen is settled by `answer_question()`; the
+    model is only asked when the reply cannot be read deterministically."""
+    from app.llm.mock_provider import MockProvider
+    from app.rag import workflow
+
+    class Counting(MockProvider):
+        calls = 0
+
+        async def generate(self, *a, **k):
+            type(self).calls += 1
+            return await super().generate(*a, **k)
+
+    llm = Counting()
+    view = await workflow.start(db_session, raw_text=FILING, source="test/conversation-chip", llm=llm,
+                                mode="conversation", forced_intent="archive")
+    before = Counting.calls
+    view = await conversation.turn(db_session, view["id"], llm, "تأیید")
+    assert Counting.calls == before
+    assert conversation.current_question(view["state"]["conversation"])["id"] != "title"
 
 
 @pytest.mark.db
