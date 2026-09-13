@@ -35,10 +35,13 @@ load_dotenv()  # so the registry works even when imported before app.config
 
 from .anthropic_provider import AnthropicProvider
 from .base import LLMProvider
+from .chain import CHAIN_MODEL, ChainProvider, chain_ids
+from .gemini_provider import GEMINI_BASE_URL, GeminiProvider
 from .groq_provider import GROQ_BASE_URL, GroqProvider
 from .knobs import knobs_for, reasoning_capable
 from .local_provider import LocalProvider
 from .openai_provider import OpenAIProvider
+from .zai_provider import ZAI_BASE_URL, ZaiProvider
 
 SEP = "::"
 
@@ -58,6 +61,9 @@ _USER_AGENT = "Mozilla/5.0 (legal-rag-workbench)"
 _NON_CHAT_HINTS = (
     "whisper", "tts", "-embed", "embedding", "playai-tts", "distil-whisper",
     "orpheus", "prompt-guard", "-guard-2",
+    # Gemini's /models lists its whole product line, not just chat: image
+    # generation, native-audio dialog, the live (bidi) endpoints, retrieval.
+    "-image", "native-audio", "-live", "omni", "imagen", "veo", "aqa",
 )
 
 # Friendly labels for ids worth surfacing first. Anything else a gateway
@@ -87,9 +93,20 @@ _PROVIDER_DEFAULT_MODEL = {
     "anthropic": "claude-opus-5",
     "openai": "gpt-4.1",
     "groq": "openai/gpt-oss-20b",
+    "gemini": "gemini-3.7-flash",
+    "zai": "glm-4.5-flash",
+    "chain": CHAIN_MODEL,
     "local": "qwen2.5:3b",
     "mock": "rules-v1",
 }
+
+# z.ai has no cheap /models listing, so its ids are named here. Anything else a
+# key can reach is still selectable by typing the id into LLM_MODEL / LLM_CHAIN.
+_ZAI_MODELS = [
+    ("glm-4.5-flash", "GLM 4.5 Flash — free tier"),
+    ("glm-4.6", "GLM 4.6"),
+    ("glm-4.5-air", "GLM 4.5 Air"),
+]
 
 
 def make_id(provider: str, model: str) -> str:
@@ -317,11 +334,37 @@ def gateways() -> list[dict]:
             "base_url": (os.environ.get("GROQ_BASE_URL") or GROQ_BASE_URL).rstrip("/"),
             "key": os.environ.get("GROQ_API_KEY"),
         })
+    if os.environ.get("GEMINI_API_KEY"):
+        out.append({
+            "provider": "gemini",
+            "label": "Gemini",
+            "base_url": (os.environ.get("GEMINI_BASE_URL") or GEMINI_BASE_URL).rstrip("/"),
+            "key": os.environ.get("GEMINI_API_KEY"),
+        })
+    if os.environ.get("ZAI_API_KEY"):
+        out.append({
+            "provider": "zai",
+            "label": "z.ai",
+            "base_url": (os.environ.get("ZAI_BASE_URL") or ZAI_BASE_URL).rstrip("/"),
+            "key": os.environ.get("ZAI_API_KEY"),
+            # no discovery endpoint — offer the named ids instead
+            "models": _ZAI_MODELS,
+        })
     return out
 
 
 def _gateway_models(gw: dict) -> list[dict]:
     provider, label, base, key = gw["provider"], gw["label"], gw["base_url"], gw["key"]
+
+    # A gateway with no /models endpoint names its ids in `gateways()`. The
+    # "/models is authoritative" rule still holds for everyone who has one:
+    # this branch is for endpoints that simply do not offer discovery.
+    if named := gw.get("models"):
+        if not key:
+            return [_entry(provider, named[0][0], f"{named[0][1]}  ·  {label}", available=False,
+                           reason=f"no API key configured for {label}")]
+        return [_entry(provider, m, f"{title}  ·  {label}", available=True)
+                for m, title in named]
 
     if not key:
         fallback = _PROVIDER_DEFAULT_MODEL.get(provider, "")
@@ -331,6 +374,11 @@ def _gateway_models(gw: dict) -> list[dict]:
     try:
         data = _get_json(f"{base}/models", key=key)
         ids = [m["id"] for m in data.get("data", []) if m.get("id")]
+        if provider == "gemini":
+            # Google reports "models/gemini-3.7-flash"; the chat endpoint takes
+            # either form, but the bare name is what LLM_MODEL and LLM_CHAIN
+            # are written with, so ids must round-trip as the bare name.
+            ids = [i.split("/")[-1] for i in ids]
     except (httpx.HTTPError, ValueError) as error:
         # Keep the gateway visible with the reason rather than vanishing.
         fallback = _PROVIDER_DEFAULT_MODEL.get(provider, "")
@@ -397,11 +445,28 @@ def _anthropic_models() -> list[dict]:
     ]
 
 
+def _chain_entry() -> dict:
+    """The ordered fallback list, offered as one selectable model.
+
+    It is listed first because it is the only entry that cannot go dark: the
+    last link is the local Ollama model, which needs neither key nor network.
+    """
+    provider = ChainProvider()
+    links = provider.links()
+    label = "زنجیرهٔ خودکار — " + (provider.describe() or "خالی")
+    entry = _entry("chain", CHAIN_MODEL, label, available=bool(links),
+                   reason="" if links else
+                   f"none of the models in LLM_CHAIN could be built: {', '.join(chain_ids())}")
+    entry["chain"] = [model_id for model_id, _ in links]
+    return entry
+
+
 def catalog(autostart_ollama: bool = False) -> list[dict]:
-    """Every model the UI can pick: local first, then each gateway, then direct
-    Anthropic. Entries carry `available`, a `reason` when not, and the `knobs`
-    that model accepts."""
-    entries = _local_models(autostart=autostart_ollama)
+    """Every model the UI can pick: the fallback chain, then local, then each
+    gateway, then direct Anthropic. Entries carry `available`, a `reason` when
+    not, and the `knobs` that model accepts."""
+    entries = [_chain_entry()]
+    entries += _local_models(autostart=autostart_ollama)
     for gw in gateways():
         entries += _gateway_models(gw)
     entries = entries + _anthropic_models()
@@ -439,6 +504,12 @@ def resolve(model_id: str) -> LLMProvider:
         return GroqProvider(model=model)
     if provider == "openai":
         return OpenAIProvider(model=model)
+    if provider == "gemini":
+        return GeminiProvider(model=model)
+    if provider == "zai":
+        return ZaiProvider(model=model)
+    if provider == "chain":
+        return ChainProvider(model=model)
     if provider == "mock":
         from .mock_provider import MockProvider
 

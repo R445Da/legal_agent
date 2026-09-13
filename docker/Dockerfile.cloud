@@ -32,7 +32,8 @@ RUN pip install -r /tmp/requirements.txt
 # ----------------------------------------------------------------------------- #
 FROM python:3.12-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 \
+# ffmpeg: speech-to-text decodes the browser's webm/ogg to 16 kHz mono PCM.
+RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # HF Spaces runs containers as uid 1000; matching it keeps the cache writable.
@@ -70,6 +71,8 @@ COPY --chown=app:app docker/entrypoint-cloud.sh ./docker/
 # The statute base scripts/seed_mock.py loads (~120 KB); without it the image
 # cannot seed the insurance edition's legal context.
 COPY --chown=app:app data/laws/ ./data/laws/
+# The Persian legal terms Gemini's transcription is biased toward.
+COPY --chown=app:app data/stt_vocab_fa.txt ./data/
 
 # Retrieval settings must match the vectors in the database — see the startup
 # guard in app/db/engine.py, which refuses to run on a mismatch.

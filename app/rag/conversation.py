@@ -9,13 +9,37 @@ merged into the draft (a model call with a strict schema where the provider
 has one, a regex pass otherwise), the missing list is recomputed, and the
 run either asks again or commits through the ordinary `workflow.advance()`.
 
+The dialogue asks **one thing at a time**. An opening message says what was
+extracted, and after it the run walks an ordered queue of questions — confirm
+the title, supply the docket number, keep the citations, approve the timeline,
+link the similar cases, confirm the labels, file it — each its own turn, each
+with quick replies. Answering a question is free: a tapped chip or a plain
+«تأیید» is settled by `answer_question()` without a model call, which matters
+when the first link of the model chain is a free tier capped per day. Only a
+free-form reply that the deterministic pass cannot settle (several fields in
+one sentence, a correction phrased as prose) falls through to `merge_reply()`
+and costs a call.
+
 Everything the dialogue knows lives in `WorkflowState.conversation`, which is
 persisted in `runs.state` — so a reload, another tab or the API can pick the
 conversation up exactly where it stopped:
 
     {"turns": [{"role": "assistant", "text", "asked": [paths]},
                {"role": "user", "text", "patch": {...}, "changed": [paths]}],
-     "pending": [paths], "skipped": [paths], "rounds": int, "confirmed": bool}
+     "pending": [paths], "skipped": [paths], "rounds": int, "confirmed": bool,
+     "queue": [question], "cursor": int}
+
+A question is a plain dict so it round-trips through the run state as JSON:
+
+    id      unique within the run — also the widget key suffix
+    kind    confirm | text     (a confirm may push a `text` follow-up)
+    prompt  the Persian question
+    chips   quick replies; tapping one sends it as the user's turn
+    card    {"kind": ..., "data": ...} — the value under discussion, rendered
+            by the UI (`app/ui/askflow.py`). Data, not markup: this module
+            stays free of presentation.
+    free    what free text means here: "value" replaces the value, "ignore"
+            treats anything unrecognised as agreement
 """
 
 import json
@@ -287,6 +311,244 @@ def apply_patch(state: WorkflowState, patch: dict) -> list[str]:
 
 
 # --------------------------------------------------------------------------- #
+# The question queue
+#
+# `propose_message()` above still opens the dialogue — it is the one place that
+# says what came out of the text. What follows it is this queue: one question
+# per turn, so filing a case reads as a conversation instead of a form. The
+# queue is built once, when the run reaches the gate, and lives in the run
+# state with a cursor, so a reload resumes on the same question.
+# --------------------------------------------------------------------------- #
+_YES = ("تأیید", "تایید", "بله", "بلی", "آری", "اوکی", "باشه", "درست", "صحیح",
+        "موافقم", "ثبت", "نگه", "پیوند بزن", "ok", "yes", "✓")
+_NO = ("رد کن", "ردش", "نه", "خیر", "نادرست", "غلط", "اشتباه", "حذف", "پاک",
+       "خالی", "پیوند نزن", "بی‌خیال", "بیخیال", "ندارم", "no", "✕")
+_EDIT = ("اصلاح", "تغییر", "ویرایش", "عوض", "یکی‌یکی", "یکی یکی", "خودم")
+
+
+def _fold(text: str) -> str:
+    return (text or "").replace("‌", " ").strip().lower()
+
+
+def _says(text: str, words) -> bool:
+    folded = _fold(text)
+    return any(_fold(w) in folded for w in words)
+
+
+def _q(qid: str, prompt: str, *, kind: str = "confirm", chips=None, card=None,
+       free: str = "ignore", note: str = "") -> dict:
+    return {"id": qid, "kind": kind, "prompt": prompt, "chips": list(chips or []),
+            "card": card, "free": free, "note": note}
+
+
+def _fa_int(n) -> str:
+    return str(n).translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+
+
+def build_queue(state: WorkflowState) -> list[dict]:
+    """The whole gate as an ordered conversation.
+
+    Required fields that came back empty are *asked for*; fields that were
+    extracted are offered for confirmation, so a wrong docket number is caught
+    by the person filing rather than discovered in the archive later. The
+    citation / timeline / similar / label steps each contribute one question,
+    and the last question is the commit.
+    """
+    draft = state.draft or {}
+    ent = draft.get("entities") or {}
+    queue: list[dict] = []
+
+    title = (draft.get("title") or "").strip()
+    if title:
+        queue.append(_q("title", "عنوان پرونده را تأیید می‌کنید؟",
+                        chips=["تأیید", "اصلاح می‌کنم"],
+                        card={"kind": "value", "data": title}, free="value",
+                        note="می‌توانید عنوان درست را مستقیم بنویسید."))
+    else:
+        queue.append(_q("title", "عنوانی برای این پرونده پیدا نکردم — چه عنوانی بگذارم؟",
+                        kind="text", free="value"))
+
+    number = str(ent.get("case_number") or "").strip()
+    if number:
+        queue.append(_q("entities.case_number", "شمارهٔ کلاسه را این‌طور خواندم — درست است؟",
+                        chips=["تأیید", "اصلاح می‌کنم"],
+                        card={"kind": "case_number", "data": number}, free="value"))
+    else:
+        queue.append(_q("entities.case_number", "شمارهٔ کلاسه را پیدا نکردم — بفرمایید.",
+                        kind="text", chips=["ندارم"], free="value"))
+
+    for path in missing_paths(state):
+        if path in {"title", "entities.case_number"}:
+            continue
+        queue.append(_q(path, f"{FIELD_FA.get(path, path)} را بفرمایید.",
+                        kind="text", chips=["ندارم"], free="value"))
+
+    summary = (draft.get("summary") or "").strip()
+    if summary:
+        queue.append(_q("summary", "خلاصه‌ای که نوشتم این است — تأیید می‌کنید؟",
+                        chips=["تأیید", "اصلاح می‌کنم"],
+                        card={"kind": "value", "data": summary}, free="value"))
+
+    refs = state.references or []
+    if refs:
+        unresolved = sum(1 for r in refs if not r.get("resolved"))
+        prompt = f"{_fa_int(len(refs))} استناد قانونی یافتم؛ نگه دارم؟"
+        if unresolved:
+            prompt += f" ({_fa_int(unresolved)} مورد به پایگاه قوانین متصل نشد)"
+        queue.append(_q("refs", prompt, chips=["نگه دار", "حذف کن"],
+                        card={"kind": "refs", "data": refs}))
+
+    if state.timeline:
+        queue.append(_q("timeline",
+                        f"{_fa_int(len(state.timeline))} رویداد روی خط زمان نشستند — تأیید می‌کنید؟",
+                        chips=["تأیید", "خالی کن"],
+                        card={"kind": "timeline", "data": state.timeline}))
+
+    if state.similar:
+        queue.append(_q("similar",
+                        f"{_fa_int(len(state.similar))} پروندهٔ مشابه پیدا کردم — پیوند بزنم؟",
+                        chips=["پیوند بزن", "پیوند نزن"],
+                        card={"kind": "similar", "data": state.similar}))
+
+    queue.append(_q("labels",
+                    "برچسب‌های این مدخل را این‌ها می‌گذارم — تأیید می‌کنید؟" if state.labels
+                    else "برچسبی پیشنهاد نشد — خودتان برچسبی می‌گذارید؟",
+                    chips=["تأیید", "تغییر می‌دهم"] if state.labels else ["بی‌برچسب باشد"],
+                    card={"kind": "labels", "data": list(state.labels or [])}, free="value",
+                    note="برچسب‌ها را با ویرگول جدا کنید."))
+
+    queue.append(_q("commit", "همه‌چیز آماده است. در آرشیو ثبت کنم؟",
+                    chips=["ثبت کن", "لغو"]))
+    return queue
+
+
+def current_question(conv: dict | None) -> dict | None:
+    """The question the dialogue is on, or None when the queue is exhausted."""
+    queue = (conv or {}).get("queue") or []
+    cursor = int((conv or {}).get("cursor", 0))
+    return queue[cursor] if 0 <= cursor < len(queue) else None
+
+
+def question_progress(conv: dict | None) -> tuple[int, int]:
+    queue = (conv or {}).get("queue") or []
+    cursor = int((conv or {}).get("cursor", 0))
+    return (min(cursor + 1, len(queue)), len(queue))
+
+
+def answer_question(state: WorkflowState, question: dict, reply: str) -> dict:
+    """Settle one question without a model.
+
+    Returns `{"ack", "handled", "confirm", "cancel", "follow_up"}`. `handled`
+    is False when the reply is free text this cannot interpret — the caller
+    then falls back to `merge_reply()`, which is the only path that costs a
+    model call.
+    """
+    qid, kind = question["id"], question.get("kind", "confirm")
+    free = question.get("free", "ignore")
+    said = (reply or "").strip()
+    yes, no, edit = _says(said, _YES), _says(said, _NO), _says(said, _EDIT)
+    if no:
+        edit = False
+    out = {"ack": "", "handled": True, "confirm": False, "cancel": False, "follow_up": None}
+
+    # A reply may answer a *different* field than the one on screen — people
+    # volunteer the docket number while being asked about the title, and a
+    # labelled line («شماره پرونده: ۱۴۰۲…») says plainly where it belongs. The
+    # regex pass is the authority on that, so anything it reads as another
+    # field is handed back to the caller and merged properly instead of being
+    # swallowed as this question's answer.
+    quick = regex_merge(said, missing_paths(state))
+    # «انصراف» means stop, whichever question is on screen.
+    if quick["cancel"]:
+        out["cancel"] = True
+        out["ack"] = "ثبت نشد — این پیش‌نویس را رها کردم."
+        return out
+    elsewhere = {path: value for path, value in quick["patch"].items() if path != qid}
+    if elsewhere and not (yes and not quick["patch"]):
+        out["handled"] = False
+        return out
+    if qid in quick["patch"]:
+        # Same field — take the parsed value: it normalises Persian digits.
+        said = quick["patch"][qid]
+
+    if qid == "commit":
+        if no or _says(said, ("لغو", "انصراف")):
+            out["cancel"] = True
+            out["ack"] = "ثبت نشد — این پیش‌نویس را رها کردم."
+        else:
+            out["confirm"] = True
+            out["ack"] = "در حال ثبت…"
+        return out
+
+    if qid in FIELD_FA:
+        label = FIELD_FA.get(qid, qid)
+        if edit:
+            out["follow_up"] = _q(qid, f"{label} را بنویسید.", kind="text", free="value")
+            out["ack"] = "بفرمایید."
+        elif kind == "text" or (free == "value" and not (yes or no)):
+            if no or _says(said, _SKIP):
+                out["ack"] = f"{label} را خالی می‌گذارم."
+                state.conversation = {**(state.conversation or {})}
+                skipped = set(state.conversation.get("skipped") or []) | {qid}
+                state.conversation["skipped"] = sorted(skipped)
+            elif not said:
+                out["handled"] = False
+            else:
+                set_path(state.draft, qid, said)
+                out["ack"] = f"{label} ثبت شد."
+        elif no:
+            set_path(state.draft, qid, "")
+            out["ack"] = f"{label} را برداشتم."
+        else:
+            out["ack"] = "تأیید شد."
+        return out
+
+    if qid == "refs":
+        keep = not no
+        state.references = [{**r, "keep": keep} for r in (state.references or [])]
+        out["ack"] = (f"{_fa_int(len(state.references))} استناد نگه داشته شد." if keep
+                      else "استنادها را نگه نمی‌دارم.")
+        return out
+
+    if qid == "timeline":
+        if no:
+            state.timeline = []
+            out["ack"] = "خط زمان خالی شد."
+        else:
+            out["ack"] = f"{_fa_int(len(state.timeline))} رویداد تأیید شد."
+        return out
+
+    if qid == "similar":
+        keep = not no
+        state.similar = [{**x, "keep": keep} for x in (state.similar or [])]
+        out["ack"] = (f"{_fa_int(len(state.similar))} پرونده پیوند خورد." if keep
+                      else "پیوندی نمی‌زنم.")
+        return out
+
+    if qid == "labels":
+        if edit:
+            out["follow_up"] = _q("labels", "برچسب‌ها را بنویسید (با ویرگول جدا کنید).",
+                                  kind="text", chips=["بی‌برچسب باشد"], free="value")
+            out["ack"] = "بفرمایید."
+        elif no or _says(said, ("بی‌برچسب",)):
+            state.labels = []
+            out["ack"] = "بدون برچسب."
+        elif kind == "text" or not yes:
+            parsed = [t.strip() for t in said.replace("،", ",").split(",") if t.strip()]
+            if parsed:
+                state.labels = parsed
+                out["ack"] = f"{_fa_int(len(parsed))} برچسب ثبت شد."
+            else:
+                out["ack"] = "برچسب‌ها همان ماندند."
+        else:
+            out["ack"] = f"{_fa_int(len(state.labels or []))} برچسب تأیید شد."
+        return out
+
+    out["handled"] = False
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # One turn
 # --------------------------------------------------------------------------- #
 def _fresh(state: WorkflowState) -> dict:
@@ -317,14 +579,44 @@ async def turn(session: AsyncSession, run_id: str, llm: LLMProvider, reply: str)
     state.raw_text = view["raw_text"]
     state.source = view["source"] or state.source
     conv = _fresh(state)
+    state.conversation = conv
 
-    result = await merge_reply(llm, state, reply)
-    changed = apply_patch(state, result["patch"])
+    # The question on screen gets first refusal on the reply. A chip tap, a
+    # «تأیید», a single value — all settled here, with no model call. Only what
+    # this cannot read (prose, several fields at once) reaches merge_reply().
+    question = current_question(conv)
+    ack, changed, follow_up = "", [], None
+    ack_handled = question is not None
+    if question is not None:
+        settled = answer_question(state, question, reply)
+        conv = state.conversation  # answer_question may record a skip
+        ack_handled = settled["handled"]
+        if settled["handled"]:
+            ack = settled["ack"]
+            follow_up = settled["follow_up"]
+            result = {"patch": {}, "confirm": settled["confirm"], "cancel": settled["cancel"], "skip": []}
+        else:
+            result = await merge_reply(llm, state, reply)
+            changed = apply_patch(state, result["patch"])
+    else:
+        result = await merge_reply(llm, state, reply)
+        changed = apply_patch(state, result["patch"])
+
     conv["rounds"] = int(conv.get("rounds", 0)) + 1
     conv["skipped"] = sorted(set(conv.get("skipped") or []) | set(result.get("skip") or []))
     conv["turns"].append({"role": "user", "text": reply, "patch": result["patch"], "changed": changed,
-                          "confirm": result["confirm"], "cancel": result["cancel"]})
+                          "confirm": result["confirm"], "cancel": result["cancel"], "ack": ack})
     state.conversation = conv
+
+    # Move to the next question. A «اصلاح می‌کنم» inserts its follow-up right
+    # here, so the correction is asked before the queue moves on.
+    if question is not None and not result["cancel"] and ack_handled:
+        queue = list(conv.get("queue") or [])
+        cursor = int(conv.get("cursor", 0))
+        if follow_up is not None:
+            queue.insert(cursor + 1, follow_up)
+        conv["queue"] = queue
+        conv["cursor"] = cursor + 1
 
     if result["cancel"]:
         await runs.save_state(session, run_id, state.to_dict(), status="abandoned")
@@ -333,17 +625,30 @@ async def turn(session: AsyncSession, run_id: str, llm: LLMProvider, reply: str)
 
     missing = missing_paths(state)
     conv["pending"] = missing
-    exhausted = conv["rounds"] >= MAX_ROUNDS
+    # A queued run is bounded by its queue, not by MAX_ROUNDS: the queue is
+    # finite and every question has to be asked, so the round cap would cut the
+    # dialogue off before the commit question.
+    queued = bool(conv.get("queue"))
+    # A queued run is bounded by its queue rather than the round cap — but a
+    # reply that keeps answering other fields never advances the cursor, so the
+    # cap stays as the backstop that guarantees termination.
+    exhausted = ((current_question(conv) is None
+                  or conv["rounds"] >= len(conv["queue"]) + MAX_ROUNDS)
+                 if queued else conv["rounds"] >= MAX_ROUNDS)
     if (not missing and result["confirm"]) or exhausted:
         conv["confirmed"] = True
         state.conversation = conv
         return await workflow.advance(
             session, run_id, llm,
-            user_patch={"draft": state.draft, "conversation": conv, "labels": state.labels},
+            user_patch={"draft": state.draft, "conversation": conv, "labels": state.labels,
+                        "references": state.references, "timeline": state.timeline,
+                        "similar": state.similar},
         )
 
-    question = propose_message(state)
-    conv["turns"].append({"role": "assistant", "text": question, "asked": missing})
+    upcoming = current_question(conv)
+    text = upcoming["prompt"] if upcoming else propose_message(state)
+    conv["turns"].append({"role": "assistant", "text": text, "asked": missing,
+                          "question": upcoming})
     state.conversation = conv
     seq = STEP_IDS.index("labels") + 1
     await runs.record_step(

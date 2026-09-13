@@ -1,12 +1,21 @@
 """
-Speech-to-text with faster-whisper (CTranslate2, local, CPU, no API).
+Speech to text, in whichever way is available.
 
-The assistant's mic button records audio in the browser and POSTs it to
-`/transcribe`; the text is dropped into the composer so you can dictate a court
-session instead of typing it. Fully offline once the model is downloaded.
+The assistant's mic button records audio in the browser; the text is dropped
+into the composer so a court session can be dictated instead of typed. Three
+backends, best first:
 
-Model size via WHISPER_MODEL (tiny | base | small | medium | large-v3),
-default "small" — a reasonable Persian/CPU balance. Set STT=0 to disable.
+* **Gemini's live transcription model** (`app/rag/gemini_stt.py`) — the default
+  whenever `GEMINI_API_KEY` is set. It is the only one that takes a Persian
+  legal `custom_vocabulary`, which is what keeps «کلاسه» from coming back as
+  «کلاس», and it is the same path `scripts/live.sh --mic` uses.
+* **Groq's hosted Whisper** — fast, but the API is geo-blocked from this
+  network in flapping windows.
+* **faster-whisper on the CPU** — no key, no network, slow. The floor, not the
+  default: it is what answers when nothing else can.
+
+Model size for the local one via WHISPER_MODEL (tiny | base | small | medium |
+large-v3). Set STT=0 to disable the microphone entirely.
 """
 
 import asyncio
@@ -46,6 +55,18 @@ def _run(audio_bytes: bytes, suffix: str, size: str | None = None) -> dict:
     }
 
 
+def _gemini_models() -> list[tuple[str, str]]:
+    """Gemini's live transcription, when a key is configured and the SDK is
+    installed. First in the list because it is the only backend that can be
+    biased toward this archive's vocabulary."""
+    from app.rag import gemini_stt
+
+    if not gemini_stt.available():
+        return []
+    return [("gemini:" + gemini_stt.model(),
+             f"{gemini_stt.model()} · Gemini — واژگان حقوقی")]
+
+
 def _groq_models() -> list[tuple[str, str]]:
     """Groq's hosted Whisper, when a key is configured. `large-v3-turbo` is much
     faster and more accurate on Persian than a `medium` model on this CPU, which
@@ -64,12 +85,14 @@ def choices() -> list[tuple[str, str]]:
         (f"local:{size}", f"faster-whisper {size} · محلی")
         for size in ("large-v3", "medium", "small", "base", "tiny")
     ]
-    return _groq_models() + local
+    return _gemini_models() + _groq_models() + local
 
 
 def default_choice() -> str:
-    groq = _groq_models()
-    return groq[0][0] if groq else f"local:{_SIZE}"
+    for backend in (_gemini_models(), _groq_models()):
+        if backend:
+            return backend[0][0]
+    return f"local:{_SIZE}"
 
 
 async def _groq_transcribe(audio_bytes: bytes, filename: str, model: str) -> dict:
@@ -98,6 +121,10 @@ async def transcribe(
     choice = choice or default_choice()
     backend, _, name = choice.partition(":")
 
+    if backend == "gemini":
+        from app.rag import gemini_stt
+
+        return await gemini_stt.transcribe(audio_bytes)
     if backend == "groq":
         return await _groq_transcribe(audio_bytes, filename or "audio.wav", name)
 

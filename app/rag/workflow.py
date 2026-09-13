@@ -60,7 +60,9 @@ _STATUS_TERMINAL = {"done", "skipped"}
 #   "conversation"     — like review, but the stop is a chat message: the
 #                        assistant says what it found and asks for what is
 #                        missing; replies are merged by app/rag/conversation.py
-RUN_MODES = ("review", "steps", "auto", "conversation")
+# `conversation` leads: it is the filing experience, and the others are the
+# escape hatches (a single review stop, every gate, or none at all).
+RUN_MODES = ("conversation", "review", "steps", "auto")
 _MODE_FA = {"review": "تأیید یک‌باره", "steps": "گام‌به‌گام", "auto": "خودکار", "conversation": "گفتگویی"}
 
 # Fields a finished entry really should have. The review gate turns any that are
@@ -77,7 +79,7 @@ REQUIRED_FIELDS = (
 class WorkflowState:
     raw_text: str = ""
     source: str = ""
-    mode: str = "review"                             # review | steps | auto | conversation
+    mode: str = "conversation"                       # conversation | review | steps | auto
     route: dict = field(default_factory=dict)        # {intent, confidence, reason, clarification}
     draft: dict = field(default_factory=dict)        # extract_entry() output, edited at its gate
     timeline: list = field(default_factory=list)     # [{date, title, detail, source}]
@@ -348,13 +350,13 @@ _BY_ID = {s.id: s for s in STEPS}
 # --------------------------------------------------------------------------- #
 async def start(
     session: AsyncSession, *, raw_text: str, source: str, llm: LLMProvider,
-    mode: str = "review", forced_intent: str | None = None,
+    mode: str = "conversation", forced_intent: str | None = None,
 ) -> dict:
     """Create the run and execute up to the first pause (or to commit, in
     `auto` mode)."""
     state = WorkflowState(
         raw_text=raw_text, source=source,
-        mode=mode if mode in RUN_MODES else "review",
+        mode=mode if mode in RUN_MODES else "conversation",
         route={"forced_intent": forced_intent} if forced_intent else {},
     )
     run = await runs.create_run(
@@ -510,14 +512,21 @@ def _payload(step_id: str, state: WorkflowState) -> dict:
                 state.conversation = {
                     "turns": [{"role": "assistant", "text": conversation.propose_message(state), "asked": missing}],
                     "pending": missing, "skipped": [], "rounds": 0, "confirmed": False,
+                    # The opening message says what was extracted; the queue is
+                    # what the dialogue then walks, one question per turn.
+                    "queue": conversation.build_queue(state), "cursor": 0,
                 }
             base.update({
                 "mode": "conversation",
                 "draft": state.draft,
                 "references": state.references,
+                "timeline": state.timeline,
+                "similar": state.similar,
+                "labels": state.labels,
                 "missing": _missing_required(state),
                 "message": [t for t in state.conversation["turns"] if t["role"] == "assistant"][-1]["text"],
                 "conversation": state.conversation,
+                "question": conversation.current_question(state.conversation),
             })
         return base
     return {
@@ -544,10 +553,21 @@ def _draft_query(draft: dict, raw_text: str) -> str:
 
 
 def _outcome_of(entry) -> str:
-    """Best-effort past outcome of a matched entry, for «نتیجه» in the similar list."""
+    """Best-effort past outcome of a matched entry, for «نتیجه» in the similar list.
+
+    `status` is stored as the extraction schema's English enum
+    (`open|closed|appeal`); this is display text, so it is translated — a raw
+    "closed" beside a Persian case title is exactly the leak the UI rules
+    forbid.
+    """
+    from app.rag.casebase import STATUS_FA
+
     ent = entry.entities or {}
+    if ent.get("outcome"):
+        return str(ent["outcome"])
     if ent.get("status"):
-        return str(ent["status"])
+        status = str(ent["status"])
+        return STATUS_FA.get(status, status)
     summary = (entry.summary or "").strip()
     if summary:
         first = summary.split(". ")[0].split("۔")[0]

@@ -6,7 +6,7 @@ import streamlit as st
 
 from app.demo.stages import STAGES
 from app.rag.orchestrator import _INTENT_FA
-from app.ui import components, samples
+from app.ui import askflow, components, samples
 from app.ui import theme as th
 from app.ui.theme import (
     answer, card, case_id, chips, esc, fa_num, kv, ledger, panel, stamp, timeline,
@@ -83,18 +83,21 @@ def _components() -> None:
 
 
 def _patterns() -> None:
-    from app.ui.views.agent import _stepper
+    from app.ui.views.agent import _rail
 
     st.markdown("**حباب‌های گفتگو**")
     st.markdown("<div class='bubble-user'>ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟</div>", unsafe_allow_html=True)
     answer("بیمه‌گر در حدود خسارتی که پرداخته قائم‌مقام بیمه‌گذار است [1].")
     st.divider()
-    st.markdown("**خط لولهٔ ثبت مدخل + دروازهٔ گفتگویی**")
-    _stepper(samples.RUN_VIEW)
-    st.markdown("<span class='intent-badge archive'>در انتظار پاسخ شما در گفتگو</span>", unsafe_allow_html=True)
-    st.markdown(f"<div class='answer'>{esc(samples.CONVERSATION_MESSAGE).replace(chr(10), '<br>')}</div>",
+    st.markdown("**خط لولهٔ ثبت مدخل + پرسش گفتگویی**")
+    _rail(samples.RUN_VIEW)
+    st.markdown(askflow.question_html(samples.GATE_QUESTION, step=2, total=7),
                 unsafe_allow_html=True)
-    st.caption("پاسخ در همان کادر پایین صفحهٔ دستیار نوشته می‌شود — بدون جدول.")
+    chips = st.columns(3)
+    for column, label in zip(chips, samples.GATE_QUESTION["chips"]):
+        column.button(label, key=f"gal_chip_{label}", use_container_width=True,
+                      disabled=True)
+    st.caption("هر پرسش یک نوبت است؛ پاسخ در کادر پایین صفحهٔ دستیار — بدون جدول.")
     st.divider()
     st.markdown("**نمایش ردپای عامل (زنده)**")
     with st.status("عامل در حال پژوهش در آرشیو…", expanded=True, state="complete"):

@@ -496,6 +496,12 @@ async def similar_stage(session: AsyncSession, llm: LLMProvider, intent: str, qu
 
     if not similar.enabled() or not res.get("answer"):
         return res
+    # A roster answered straight from the party table already *is* the list of
+    # cases that matter. Widening it to graph-similar cases pushed the roster
+    # under other people's files — the visible symptom of asking a search
+    # engine a question the schema could answer exactly.
+    if res.get("skip_similar"):
+        return res
     kwargs: dict = {}
     if intent == "law":
         kwargs = {"refs": res.get("refs") or [], "offset": len(res.get("refs") or [])}

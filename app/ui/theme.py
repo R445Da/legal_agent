@@ -507,6 +507,89 @@ small {{ color: var(--gray) !important; font-size: 12.6px !important; }}
 .bar-track {{ height: 6px; border-radius: 4px; background: var(--graySoft); overflow: hidden; }}
 .bar-fill {{ height: 100%; background: var(--teal); border-radius: 4px; }}
 
+/* ---------- the archive conversation ---------------------------------- */
+/* The run's shape as one line. Ported from the first prototype's ingest
+   pipeline (`.pipe-step`), which lit its stages up in sequence and dimmed the
+   ones it had not reached — the dimming is what makes the rail read as
+   progress rather than as a list of labels. Horizontal here because in a chat
+   the record underneath is what deserves the vertical space. */
+.rail {{
+  display: flex; gap: 2px; align-items: flex-start; direction: rtl;
+  background: var(--surface); border: 1px solid var(--line);
+  border-top: 2px dashed var(--gold); border-radius: 8px;
+  padding: 11px 10px 9px; margin-bottom: 10px; overflow-x: auto;
+  box-shadow: var(--shadow);
+}}
+.rail-cell {{
+  flex: 1 1 0; min-width: 62px; display: flex; flex-direction: column;
+  align-items: center; gap: 5px; transition: opacity .25s; position: relative;
+}}
+/* Dim what the run has not reached — stated positively, on `pending` alone.
+   The inverse (dim every cell, then restore the reached ones) read the same on
+   paper but left the last cell dim after a commit: the restoring rule lost the
+   cascade somewhere in Streamlit's re-injected stylesheet, and a finished run
+   showed its own final step greyed out. */
+.rail-cell.pending {{ opacity: .34; }}
+/* the connector between dots, drawn behind them, RTL so it grows leftward */
+.rail-cell:not(:last-child)::after {{
+  content: ""; position: absolute; top: 10px; left: 0; width: 50%;
+  border-top: 1px dashed var(--line);
+}}
+.rail-dot {{
+  width: 21px; height: 21px; border-radius: 50%; border: 1.5px solid var(--line);
+  background: var(--surface); color: var(--gray);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10.5px; font-weight: 700; flex-shrink: 0; position: relative; z-index: 1;
+}}
+.rail-cell.done .rail-dot {{ background: var(--teal); border-color: var(--teal); color: {on_teal}; }}
+.rail-cell.failed .rail-dot {{ background: var(--stampRed); border-color: var(--stampRed); color: #fff; }}
+.rail-cell.running .rail-dot, .rail-cell.awaiting_input .rail-dot {{
+  border-color: var(--amber); color: var(--amber); background: var(--amberSoft);
+  box-shadow: 0 0 0 3px var(--amberSoft);
+}}
+.rail-lbl {{
+  font-size: 10px; color: var(--inkSoft); text-align: center; line-height: 1.5;
+}}
+
+/* A question the assistant is asking. The gold rule on the start edge is the
+   one visual difference from an ordinary answer bubble: it marks the turns that
+   are waiting on the reader. */
+.ask {{
+  background: var(--surface); border: 1px solid var(--line);
+  border-inline-start: 3px solid var(--gold); border-radius: 8px;
+  padding: 13px 15px; direction: rtl; text-align: right;
+  box-shadow: var(--shadow);
+}}
+.ask-count {{
+  font-family: 'IBM Plex Mono', 'Vazirmatn', monospace;
+  font-size: 10.2px; color: var(--gray); letter-spacing: .02em;
+}}
+.ask-q {{
+  font-size: 14px; font-weight: 700; color: var(--ink); line-height: 1.95;
+  margin: 3px 0 2px;
+}}
+.ask-note {{ font-size: 11.4px; color: var(--gray); margin-top: 7px; line-height: 1.8; }}
+/* the value under discussion: inset, dashed, quieter than the question */
+.ask-card {{
+  margin-top: 9px; padding: 10px 12px; background: var(--paper);
+  border: 1px dashed var(--line); border-radius: 7px;
+}}
+.ask-value {{ font-size: 13.4px; color: var(--ink); line-height: 1.95; }}
+.ask-row {{
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  padding: 5px 0; border-bottom: 1px dotted var(--lineSoft); font-size: 12.4px;
+  color: var(--ink);
+}}
+.ask-row:last-child {{ border-bottom: none; }}
+.ask-card .tl-item {{ padding-bottom: 13px; }}
+/* the assistant's one-line acknowledgement of an answer — deliberately small:
+   it is punctuation between questions, not a message */
+.ack {{
+  font-size: 12.2px; color: var(--teal); direction: rtl; text-align: right;
+  padding: 2px 2px 2px 0;
+}}
+.ack::before {{ content: "✓ "; font-weight: 700; }}
+
 /* ---------- Streamlit widgets, dressed ------------------------------- */
 .stButton > button, [data-testid="stBaseButton-secondary"] {{
   border: 1px solid var(--line) !important; background: var(--surface) !important;

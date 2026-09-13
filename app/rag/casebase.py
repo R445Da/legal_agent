@@ -16,7 +16,7 @@ import re
 import uuid
 from collections import Counter
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
@@ -442,6 +442,74 @@ async def search_cases(session: AsyncSession, text: str, *, limit: int = 8) -> l
     return [case_dict(r) for r in rows]
 
 
+async def named_entities(session: AsyncSession, text: str) -> list[tuple[str, object]]:
+    """Which people or organisations the archive knows are named in `text`.
+
+    Asked backwards on purpose. Pulling a name *out* of a Persian question is
+    the hard, model-shaped problem — «وکیل رضا کریمی در چه پرونده‌هایی بوده؟»
+    has no capitalisation to lean on. But the archive already holds every name
+    it has ever extracted, so the question is simply which of those the
+    sentence contains, and that is one indexed pass over ninety-odd rows.
+
+    Names shorter than three characters are skipped: they match everything.
+    """
+    folded = norm_name(text or "")
+    if not folded:
+        return []
+    out: list[tuple[str, object]] = []
+    for kind, model in (("person", Person), ("org", Organization)):
+        rows = (await session.execute(
+            select(model).where(
+                func.length(model.norm_name) >= 3,
+                func.strpos(literal(folded), model.norm_name) > 0,
+            )
+        )).scalars().all()
+        out += [(kind, r) for r in rows]
+    # The longest name wins when one contains another («رضا کریمی» over «رضا»).
+    out.sort(key=lambda kr: len(kr[1].norm_name or ""), reverse=True)
+    kept: list[tuple[str, object]] = []
+    for kind, row in out:
+        if not any((row.norm_name or "") in (other.norm_name or "") for _, other in kept):
+            kept.append((kind, row))
+    return kept
+
+
+def _roster_answer(profile: dict) -> str:
+    """The roster of someone's cases, written without asking a model.
+
+    This question has one true answer and it is already in the join: which
+    cases, in what role, how they ended. Handing those rows to a model to
+    phrase adds a call, adds latency, and adds the chance it says «یافت نشد»
+    about a person who is plainly in the table — which is exactly what used to
+    happen when this route searched the case text instead, since a lawyer's
+    name is not in the case's own searchable text at all.
+    """
+    from app.ui.theme import fa_num
+
+    cases = profile.get("cases") or []
+    roles = Counter(c.get("role_fa") or "—" for c in cases)
+    role_line = "، ".join(f"{fa_num(n)} پرونده {role}" for role, n in roles.most_common())
+    head = (f"«{profile['name']}» در {fa_num(len(cases))} پروندهٔ بایگانی حضور دارد"
+            + (f" — {role_line}." if role_line else "."))
+
+    outcomes = [c for c in cases if (c.get("outcome") or "").strip()]
+    lines: list[str] = [head, ""]
+    for i, c in enumerate(cases, 1):
+        bits = [f"[{fa_num(i)}] پروندهٔ {fa_num(c.get('case_number') or '—')}"]
+        if c.get("title"):
+            bits.append(c["title"])
+        bits.append(f"نقش: {c.get('role_fa') or '—'}")
+        if c.get("status_fa"):
+            bits.append(c["status_fa"])
+        if c.get("outcome"):
+            bits.append(f"نتیجه: {c['outcome'][:80]}")
+        lines.append(" · ".join(bits))
+    if outcomes:
+        lines.append("")
+        lines.append(f"نتیجهٔ {fa_num(len(outcomes))} پرونده ثبت شده است؛ بقیه هنوز نتیجه‌ای ندارند.")
+    return "\n".join(lines)
+
+
 async def entity_profile(session: AsyncSession, kind: str, key: str) -> dict | None:
     """Everything about one person or organization: roles, every case with the
     role held there, and the counterparties. `key` is an id or a name."""
@@ -578,6 +646,34 @@ async def answer_case_question(
     import time
 
     t0 = time.perf_counter()
+
+    # A question that names someone the archive knows is not a search problem.
+    # Every party of every case is already extracted into `case_parties`, so
+    # «وکیل رضا کریمی در چه پرونده‌هایی بوده؟» is a join, answered exactly and
+    # in milliseconds. The route used to fall through to full-text search over
+    # the case table — whose searchable text does not include the parties — so
+    # it handed the model a pile of unrelated cases and the model correctly
+    # reported that the person appeared in none of them, about someone sitting
+    # in twenty-one rows. The model still routes here; it just no longer does
+    # the looking, or the phrasing of an answer that is pure table.
+    for kind, row in await named_entities(session, question):
+        profile = await entity_profile(session, kind, str(row.id))
+        if not profile or not profile.get("cases"):
+            continue
+        ms = round((time.perf_counter() - t0) * 1000)
+        return {
+            "answer": _roster_answer(profile),
+            "cases": profile["cases"],
+            "entity": {k: profile[k] for k in ("id", "type", "name", "roles_fa", "case_count")},
+            # The cases listed *are* the answer, so there is nothing to widen
+            # the net for — showing "similar" cases here is what buried the
+            # roster under other people's files.
+            "skip_similar": True,
+            "model": None,
+            "steps": [{"name": "شناسایی نام در پرسش", "detail": f"{profile['name']} ({profile['type']})", "ms": ms},
+                      {"name": "پرونده‌های این شخص", "detail": f"{profile['case_count']} پرونده از جدول طرفین", "ms": 0}],
+        }
+
     hits = await search_cases(session, question, limit=top_k)
     full = [await get_case(session, h["id"]) for h in hits]
     retrieve_ms = round((time.perf_counter() - t0) * 1000)

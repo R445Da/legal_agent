@@ -18,22 +18,28 @@ _TOOL_CHOICE = {"auto": "auto", "none": "none", "any": "required"}
 
 
 async def with_transient_retry(call, model: str):
-    """Await `call()`, retrying a transient 403 / 429 / 5xx / connection drop."""
+    """Await `call()`, retrying a transient 403 / 429 / 5xx / connection drop.
+
+    With `LLM_CHAIN` configured the retries collapse to one attempt: a free
+    tier's quota does not lift in the six seconds of backoff, and spending them
+    anyway only delays the fallback link that is ready right now (see chain.py).
+    """
     import openai
 
+    retries = 1 if os.environ.get("LLM_CHAIN", "").strip() else _RETRIES
     last: Exception | None = None
-    for attempt in range(_RETRIES):
+    for attempt in range(retries):
         try:
             return await call()
         except (openai.PermissionDeniedError, openai.RateLimitError,
                 openai.InternalServerError, openai.APIConnectionError) as error:
             last = error
-            if attempt < _RETRIES - 1:
+            if attempt < retries - 1:
                 await asyncio.sleep(_BACKOFF[attempt])
 
     if isinstance(last, openai.PermissionDeniedError):
         raise RuntimeError(
-            f"{model}: the endpoint returned 403 «Access denied» {_RETRIES}× — that "
+            f"{model}: the endpoint returned 403 «Access denied» {retries}× — that "
             "is the network/edge blocking this host, NOT a bad API key (a wrong key "
             "returns 401). It comes and goes: retry in a minute, use a VPN, or pick "
             "a local Ollama model in the model panel."

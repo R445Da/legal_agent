@@ -26,6 +26,10 @@ class StagePrompt:
     mode: str | None = None            # run mode for archive prompts
     expect: dict = field(default_factory=dict)  # {"intent": ..., "keys": [...], "status": ...}
     reply: bool = False                # a conversation reply, not a new message
+    until: str = ""                    # repeat this reply until the run reaches
+                                       # this status — the filing queue's length
+                                       # depends on what the extractor found, so
+                                       # a script cannot count the turns
     note: str = ""                     # what to point at during the demo
 
 
@@ -66,10 +70,16 @@ STAGES: list[Stage] = [
     Stage(
         "conversational_filing", "ثبت گفتگویی پرونده",
         "یک متن بدون شمارهٔ پرونده؛ دستیار می‌گوید چه چیزی را برداشته و شماره را در گفتگو می‌پرسد.",
+        # The dialogue asks one thing per turn, so the script answers one thing
+        # per turn. The docket number is volunteered while the title is still
+        # the question on screen — it lands on the right field anyway, which is
+        # worth showing — and «تأیید» then walks the rest of the queue.
         [StagePrompt(FILING_TEXT, intent="archive", mode="conversation",
                      expect={"status": "awaiting_input"}, note="پرسش دستیار به‌جای جدول"),
-         StagePrompt("شماره پرونده: ۱۴۰۲۰۰۱۲۳۴", reply=True, expect={"status": "awaiting_input"}),
-         StagePrompt("تأیید", reply=True, expect={"status": "committed"}, note="مدخل، پرونده و گراف ساخته شد")],
+         StagePrompt("شماره پرونده: ۱۴۰۲۰۰۱۲۳۴", reply=True, expect={"status": "awaiting_input"},
+                     note="پاسخ به فیلدی غیر از پرسشِ روی صفحه — درست می‌نشیند"),
+         StagePrompt("تأیید", reply=True, until="committed", expect={"status": "committed"},
+                     note="هر پرسش یک نوبت؛ آخرین پرسش ثبت می‌کند")],
         show=["cases", "entities"],
     ),
     Stage(
@@ -102,6 +112,13 @@ async def run_stage(session, llm, stage: Stage, *, source: str = "demo") -> list
             if not run_id:
                 problems.append("no run to reply to")
                 view = {}
+            elif prompt.until:
+                # Answer the same way until the run gets where the script says.
+                view = await conversation.turn(session, run_id, llm, prompt.text)
+                for _ in range(24):
+                    if view.get("status") != "awaiting_input":
+                        break
+                    view = await conversation.turn(session, run_id, llm, prompt.text)
             else:
                 view = await conversation.turn(session, run_id, llm, prompt.text)
             status = view.get("status")

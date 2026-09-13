@@ -54,6 +54,18 @@ RUN_VIEW = {"steps": [
     {"seq": 6, "step_id": "labels", "status": "awaiting_input", "detail": "در انتظار پاسخ شما در گفتگو", "ms": 5},
 ]}
 
+# One question of the filing dialogue, in the shape app/rag/conversation.py
+# builds and app/ui/askflow.py draws — the gallery shows the real thing.
+GATE_QUESTION = {
+    "id": "entities.case_number",
+    "kind": "text",
+    "prompt": "شمارهٔ کلاسه را پیدا نکردم — بفرمایید.",
+    "chips": ["ندارم"],
+    "card": None,
+    "free": "value",
+    "note": "می‌توانید شماره را بگویید؛ گفتار هم پذیرفته می‌شود.",
+}
+
 CONVERSATION_MESSAGE = (
     "از متن شما این‌ها را برداشتم:\n• عنوان: صورت‌جلسهٔ رسیدگی شعبهٔ ۳\n• مرجع: دادگاه حقوقی تهران\n"
     "• طرفین: شرکت سهامی بیمه ایران، آقای علی مرادی\n• ۱ استناد قانونی\n\n"
