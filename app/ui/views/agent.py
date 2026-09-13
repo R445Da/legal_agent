@@ -1534,16 +1534,49 @@ def _composer(cfg: dict) -> None:
         fingerprint = hash(audio.getvalue())
         if st.session_state.get("_mic_done") != fingerprint:
             st.session_state["_mic_done"] = fingerprint
+            # Watch it being transcribed rather than waiting behind a spinner.
+            # Gemini's live model settles a phrase over several passes —
+            # «وضعیت» becomes «وضعیت مالی شرکت» becomes the whole question — and
+            # watching that happen is the difference between dictation that
+            # feels answerable and a progress bar. Backends that cannot stream
+            # emit a single `done` and simply appear at the end.
+            #
+            # The events are: `interim` replaces the phrase still being heard,
+            # `final` settles it, and `done` carries everything joined. So the
+            # settled phrases are kept and the interim one is only ever shown
+            # after them — appending interims would repeat every correction.
+            settled: list[str] = []
+            spoken = ""
             try:
-                with st.spinner("در حال رونویسی…"):
-                    result = aio.run(stt.transcribe(
+                with st.chat_message("user", avatar="🎙️"):
+                    heard = st.empty()
+                    for event in aio.iterate(stt.stream(
                         audio.getvalue(), "audio.wav",
                         choice=st.session_state.get("agent_stt"),
-                    ))
+                    )):
+                        text = (event.get("text") or "").strip()
+                        kind = event.get("type")
+                        if kind == "done":
+                            spoken = text
+                            break
+                        if not text:
+                            continue
+                        if kind == "final":
+                            settled.append(text)
+                            shown = " ".join(settled)
+                        else:
+                            shown = " ".join([*settled, text])
+                        heard.markdown(
+                            f"<div class='bubble-user' style='opacity:.7'>{esc(shown)}</div>",
+                            unsafe_allow_html=True,
+                        )
+                    heard.empty()
             except Exception as error:  # noqa: BLE001
                 components.error_box(error)
                 return
-            spoken = (result or {}).get("text", "").strip()
+            # `done` is authoritative; the settled phrases are the fallback for
+            # a stream that timed out before sending one.
+            spoken = (spoken or " ".join(settled)).strip()
             if not spoken:
                 st.warning("چیزی شنیده نشد.")
             elif _voice_command(cfg, spoken):

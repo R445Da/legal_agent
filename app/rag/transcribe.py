@@ -130,3 +130,37 @@ async def transcribe(
 
     suffix = os.path.splitext(filename)[1] or ".webm"
     return await asyncio.to_thread(_run, audio_bytes, suffix, name or _SIZE)
+
+
+async def stream(
+    audio_bytes: bytes, filename: str = "audio.webm", *, choice: str | None = None
+):
+    """Transcribe as the model hears it, yielding as it goes.
+
+    Same event shape for every backend — `{"type": "interim"|"final"|"done",
+    "text": ...}` — so the composer has one code path and does not care which
+    one answered.
+
+    Only Gemini's live model actually streams. Groq and faster-whisper take a
+    finished recording and hand back a finished string, so they emit a single
+    `done`: the words appear at the end rather than as they are spoken, which
+    is the honest behaviour for a backend that cannot do better, not a bug to
+    paper over with a fake typewriter effect.
+    """
+    if not _ENABLED:
+        raise RuntimeError("speech-to-text is disabled (STT=0)")
+
+    choice = choice or default_choice()
+    backend, _, name = choice.partition(":")
+
+    if backend == "gemini":
+        from app.rag import gemini_stt
+
+        frames = gemini_stt.to_pcm16(audio_bytes)
+        async for event in gemini_stt.stream(frames):
+            yield event
+        return
+
+    result = await transcribe(audio_bytes, filename, choice=choice)
+    yield {"type": "done", "text": (result or {}).get("text", ""),
+           "model": (result or {}).get("model")}
