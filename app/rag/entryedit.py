@@ -178,4 +178,19 @@ async def apply(session: AsyncSession, proposal: dict) -> dict | None:
     confirmation step, never by a tool and never by the model."""
     if not proposal or not proposal.get("entry_id") or not proposal.get("patch"):
         raise EditError("پیشنهاد ویرایش ناقص است.")
-    return await catalog.update_entry(session, proposal["entry_id"], proposal["patch"])
+    saved = await catalog.update_entry(session, proposal["entry_id"], proposal["patch"])
+
+    # Keep Obsidian in step. Without this the vault note for the edited entry
+    # keeps the old value until the next manual export, and the graph the user
+    # reads in Obsidian quietly disagrees with the database. `export_all`
+    # rewrites only the notes whose content actually changed, so this is a
+    # directory scan rather than 366 writes — and a vault problem must never
+    # fail an edit that already committed.
+    try:
+        from app.rag import vaultsync
+
+        if vaultsync.vault_exists():
+            await vaultsync.export_all(session)
+    except Exception:  # noqa: BLE001 — the archive is written; the mirror is best-effort
+        pass
+    return saved
