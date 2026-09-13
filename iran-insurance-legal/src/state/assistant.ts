@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { EntryRun } from '@/api/types'
+import type { ConversationFocus, EntryRun } from '@/api/types'
 import type { Activity, Message, OrbState, Toast } from '@/assistant/types'
 import { uid } from '@/lib/utils'
 
@@ -10,6 +10,10 @@ interface AssistantState {
   orb: OrbState
   busy: boolean
   messages: Message[]
+  /** The persisted thread these messages belong to (`/conversations`) — created on the first turn. */
+  conversationId: string | null
+  /** The record this thread is working on — set when an edit is confirmed. */
+  focus: ConversationFocus | null
   runs: Record<string, EntryRun>
   /** A conversation-mode filing waiting for the user's next reply. */
   conversationRun: string | null
@@ -24,11 +28,13 @@ interface AssistantState {
   push: (m: Omit<Message, 'id' | 'at'>) => string
   patch: (id: string, patch: Partial<Message>) => void
   setRun: (run: EntryRun) => void
-  set: (patch: Partial<Pick<AssistantState, 'conversationRun' | 'committed'>>) => void
+  set: (patch: Partial<Pick<AssistantState, 'conversationRun' | 'committed' | 'conversationId' | 'focus'>>) => void
   log: (a: Omit<Activity, 'id' | 'at'>) => void
   toast: (t: Omit<Toast, 'id'>) => void
   dismiss: (id: string) => void
   setBanner: (b: Omit<Banner, 'id'> | null) => void
+  /** Replace the transcript with a reopened thread. */
+  load: (conversationId: string, messages: Message[], focus: ConversationFocus | null) => void
   clear: () => void
 }
 
@@ -38,6 +44,8 @@ export const useAssistant = create<AssistantState>()(
       orb: 'idle',
       busy: false,
       messages: [],
+      conversationId: null,
+      focus: null,
       runs: {},
       conversationRun: null,
       committed: {},
@@ -59,11 +67,15 @@ export const useAssistant = create<AssistantState>()(
       toast: (t) => set((s) => ({ toasts: [...s.toasts, { ...t, id: uid('toast') }].slice(-4) })),
       dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
       setBanner: (b) => set({ banner: b ? { ...b, id: uid('banner') } : null }),
-      clear: () => set({ messages: [], conversationRun: null }),
+      load: (conversationId, messages, focus) => set({ conversationId, messages: messages.slice(-120), focus, conversationRun: null }),
+      clear: () => set({ messages: [], conversationRun: null, conversationId: null, focus: null }),
     }),
     {
       name: 'legal.assistant',
-      partialize: (s) => ({ messages: s.messages.map((m) => ({ ...m, streaming: false })), runs: s.runs, activity: s.activity, committed: s.committed, conversationRun: s.conversationRun }),
+      partialize: (s) => ({
+        messages: s.messages.map((m) => ({ ...m, streaming: false })), runs: s.runs, activity: s.activity, committed: s.committed,
+        conversationRun: s.conversationRun, conversationId: s.conversationId, focus: s.focus,
+      }),
     },
   ),
 )

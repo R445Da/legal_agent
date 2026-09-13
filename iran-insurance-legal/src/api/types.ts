@@ -183,7 +183,41 @@ export interface AnswerResult {
   latency_ms?: number | null
   steps?: Step[]
   retrieval?: Record<string, number>
+  /** An agent answer's edit proposal (`app/rag/entryedit.py`) — written by nothing until confirmed. */
+  pending_edit?: EditProposal | null
 }
+
+/** The current value beside the new one. Only `/entries/{id}/apply` commits it. */
+export interface EditProposal {
+  entry_id: string
+  entry_title: string
+  field: string
+  facet: string | null
+  field_fa: string
+  old: unknown
+  old_text: string
+  new: unknown
+  new_text: string
+  patch: Record<string, unknown>
+  op: 'edit' | 'append'
+}
+
+export type FocusKind = 'entry' | 'case' | 'document' | 'person' | 'org'
+export interface ConversationFocus { kind?: FocusKind; id?: string; label?: string }
+
+/** A persisted chat thread (`app/rag/conversations.py`). */
+export interface ConversationSummary {
+  id: string
+  title: string
+  source: string
+  focus: ConversationFocus
+  created_at: string | null
+  updated_at: string | null
+  /** The list endpoint returns a count; the detail endpoint returns the turns. */
+  messages: number
+}
+export interface ConversationTurn { id: string; role: 'user' | 'assistant'; text: string; intent: string | null; model: string | null; created_at: string | null; [extra: string]: unknown }
+export interface ConversationDetail extends Omit<ConversationSummary, 'messages'> { messages: ConversationTurn[] }
 
 export type RunStepStatus = 'pending' | 'running' | 'done' | 'failed' | 'awaiting_input' | 'skipped'
 export interface RunStep { seq: number; step_id: string; label: string; status: RunStepStatus; detail: string | null; payload: Record<string, unknown>; error: string | null; ms: number | null; created_at: string | null }

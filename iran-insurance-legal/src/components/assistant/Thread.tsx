@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { useShell } from '@/state/shell'
 import { sectionById } from '@/sections/registry'
 import { AnswerCard } from './AnswerCard'
+import { EditGate } from './EditGate'
 import { RunCard } from './RunCard'
 import { WhyThis } from './WhyThis'
 
@@ -29,6 +30,9 @@ export function MessageView({ m, origin = 'assistant', compact }: { m: Message; 
     )
   }
 
+  // An edit gate's outcome is shown inside the gate itself.
+  if (m.editOf) return null
+
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} className="space-y-2.5">
       {m.intentLabel && <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-[10.5px] font-medium', INTENT_TONE[m.intent ?? 'chat'])}>{m.intentLabel}</span>}
@@ -42,6 +46,7 @@ export function MessageView({ m, origin = 'assistant', compact }: { m: Message; 
         </div>
       )}
       {m.runId && <RunCard runId={m.runId} compact={compact} />}
+      {m.result?.pending_edit && !m.streaming && <EditGate m={m} />}
       {m.result && !m.streaming && <AnswerCard result={m.result} scope={m.scope} />}
       {!m.streaming && (m.route || m.clarify || (m.why && m.why.length > 0)) ? (
         <div className="flex flex-wrap items-center gap-1.5">

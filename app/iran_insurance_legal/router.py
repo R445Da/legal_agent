@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 from app.llm import registry
 from app.demo.stages import STAGES
-from app.rag import agenda, casebase, catalog, ci, hooks, lawbase, rerank, runs, voice, workflow
+from app.rag import (agenda, casebase, catalog, ci, conversations, hooks, lawbase, rerank, runs, voice,
+                     workflow)
 from app.rag import transcribe as stt
 from app.rag.cases import all_events, derive_cases, tag_counts
 from app.rag.catalog import search_entries
@@ -214,6 +215,65 @@ async def abandon_run(run_id: str):
             raise HTTPException(404, "no such run")
         await runs.set_status(s, run_id, "abandoned")
         return await runs.load_run(s, run_id)
+
+
+# The chat thread as rows (`app/rag/conversations.py`). `/conversations` in
+# app.main lists, reads and deletes threads; Streamlit starts them and appends
+# turns in-process, so the browser needs these two to do the same.
+class ConversationStart(BaseModel):
+    title: str | None = Field(default=None, max_length=500)
+
+
+@router.post("/conversations")
+async def conversation_start(body: ConversationStart | None = None):
+    async with _sessions()() as s:
+        return await conversations.start(s, title=body.title if body else None, source="web")
+
+
+# Keys `message_dict` owns; an `extra` carrying one would shadow the column
+# (or collide with `add_message`'s own keyword arguments).
+_TURN_RESERVED = frozenset({"id", "role", "text", "intent", "model", "created_at"})
+
+
+class Turn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    text: str = Field(default="", max_length=50_000)
+    intent: str | None = None
+    model: str | None = None
+    extra: dict = Field(default_factory=dict)
+
+
+@router.post("/conversations/{conversation_id}/messages")
+async def conversation_turn(conversation_id: str, turn: Turn):
+    """Append one turn. `extra` is what the turn rendered — the answer, the
+    run, the pending edit — so reopening a thread shows what it showed."""
+    extra = {k: v for k, v in turn.extra.items() if k not in _TURN_RESERVED}
+    async with _sessions()() as s:
+        message = await conversations.add_message(
+            s, conversation_id, role=turn.role, text=turn.text,
+            intent=turn.intent, model=turn.model, **extra,
+        )
+    if message is None:
+        raise HTTPException(404, "گفتگو یافت نشد")
+    return message
+
+
+class Focus(BaseModel):
+    kind: str = Field(pattern="^(entry|case|document|person|org)$")
+    id: str = Field(min_length=1)
+    label: str = ""
+
+
+@router.put("/conversations/{conversation_id}/focus")
+async def conversation_focus(conversation_id: str, focus: Focus):
+    """Record the record this thread is working on — set after an edit is
+    confirmed, as Streamlit's edit gate does."""
+    async with _sessions()() as s:
+        saved = await conversations.set_focus(s, conversation_id, kind=focus.kind, id=focus.id,
+                                              label=focus.label)
+    if saved is None:
+        raise HTTPException(404, "گفتگو یافت نشد")
+    return {"focus": saved}
 
 
 class CaseEvent(BaseModel):

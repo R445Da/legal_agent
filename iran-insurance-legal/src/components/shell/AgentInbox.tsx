@@ -90,9 +90,9 @@ export function AgentInbox() {
 
 const ACT_TONE: Record<Activity['kind'], string> = {
   routed: 'bg-cyan-300', answered: 'bg-indigo-300', filing: 'bg-violet-300', gate: 'bg-amber-300', committed: 'bg-emerald-300',
-  abandoned: 'bg-white/40', undone: 'bg-amber-300', failed: 'bg-rose-300', saved: 'bg-emerald-300', deleted: 'bg-rose-300',
+  abandoned: 'bg-white/40', undone: 'bg-amber-300', failed: 'bg-rose-300', saved: 'bg-emerald-300', deleted: 'bg-rose-300', edited: 'bg-emerald-300',
 }
-const ACT_FA: Record<Activity['kind'], string> = { routed: 'هدایت', answered: 'پاسخ', filing: 'ثبت', gate: 'تأیید', committed: 'ثبت نهایی', abandoned: 'توقف', undone: 'برگرداندن', failed: 'خطا', saved: 'ذخیره', deleted: 'حذف' }
+const ACT_FA: Record<Activity['kind'], string> = { routed: 'هدایت', answered: 'پاسخ', filing: 'ثبت', gate: 'تأیید', committed: 'ثبت نهایی', abandoned: 'توقف', undone: 'برگرداندن', failed: 'خطا', saved: 'ذخیره', deleted: 'حذف', edited: 'ویرایش' }
 
 /** Every meaningful assistant action, as a user-facing timeline. */
 export function ActivityTimeline({ items }: { items: Activity[] }) {

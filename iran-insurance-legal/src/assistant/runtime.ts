@@ -1,9 +1,9 @@
 import { api } from '@/api/endpoints'
 import { archiveKey } from '@/api/queries'
-import { describeError } from '@/api/client'
-import type { AnswerResult, ArchiveState, EntryRun, Intent } from '@/api/types'
+import { ApiError, describeError } from '@/api/client'
+import type { AnswerResult, ArchiveState, ConversationFocus, EntryRun, Intent } from '@/api/types'
 import { queryClient } from '@/lib/queryClient'
-import { sleep } from '@/lib/utils'
+import { asText, sleep } from '@/lib/utils'
 import { useAssistant } from '@/state/assistant'
 import { currentContext } from '@/state/context'
 import { useSettings } from '@/state/settings'
@@ -11,17 +11,20 @@ import { serialize, useShell } from '@/state/shell'
 import { sectionById } from '@/sections/registry'
 import { parseNavigation } from './intent'
 import { speak } from './speak'
+import { fromTurns, toTurn } from './turns'
 
 /**
  * The assistant runtime:
  *
  *   message → (navigation?) → route (orchestrator.route) → executor → answer
+ *                                                         ↘ agent → edit proposal → edit gate → apply
  *                                                         ↘ archive → entry run
  *                                                             → human gate(s) → commit
  *
- * Only a human click at a gate (`approveGate`) moves a filing towards the
- * archive; the model's draft is shown as a suggestion until then. The user
- * sees operational steps, never model reasoning.
+ * Only a human click at a gate (`approveGate`, `confirmEdit`) moves anything
+ * into the archive; the model's draft or proposal is shown as a suggestion
+ * until then. The user sees operational steps, never model reasoning. Every
+ * turn is also written to the persisted thread (`/conversations`).
  */
 
 type Origin = 'home' | 'assistant' | 'palette' | 'voice'
@@ -53,6 +56,108 @@ async function stream(id: string, text: string) {
     await sleep(12)
   }
   store().patch(id, { text, streaming: false })
+  record(id)
+}
+
+// ------------------------------------------------------------- the thread as rows
+
+/**
+ * Every turn is written to `/conversations`, as Streamlit's `_say` does, so a
+ * thread outlives the tab and can be reopened in either UI. The turn and its
+ * thread are captured when it is said, and writes go out in order; they are
+ * best-effort, because a chat must not die because a write did.
+ */
+let writes: Promise<unknown> = Promise.resolve()
+
+async function ensureConversation() {
+  if (store().conversationId) return
+  const convo = await api.startConversation().catch(() => null)
+  if (convo) store().set({ conversationId: convo.id })
+}
+
+function queueWrite(work: (conversationId: string) => Promise<unknown>) {
+  const conversationId = store().conversationId
+  if (!conversationId) return
+  writes = writes.then(() => work(conversationId)).catch((error) => {
+    // Deleted elsewhere (the other UI, or another tab): the next message starts a new thread.
+    if (error instanceof ApiError && error.status === 404 && store().conversationId === conversationId) store().set({ conversationId: null })
+  })
+}
+
+function record(id: string) {
+  const m = store().messages.find((x) => x.id === id)
+  if (m) {
+    const turn = toTurn(m)
+    queueWrite((cid) => api.addTurn(cid, turn))
+  }
+}
+
+/** Reopen a saved thread — its turns and what it was working on. */
+export async function openConversation(id: string) {
+  const a = store()
+  if (a.busy) return
+  try {
+    const convo = await api.conversation(id)
+    a.load(convo.id, fromTurns(convo.messages, (i) => INTENT_FA[i] ?? i), convo.focus?.id ? convo.focus : null)
+    settle('idle')
+  } catch (error) {
+    a.toast({ tone: 'error', title: 'گفتگو باز نشد', detail: describeError(error) })
+  }
+}
+
+/** Delete a thread. The answers it produced stay in the archive with their evidence. */
+export async function deleteConversation(id: string) {
+  const a = store()
+  try {
+    await api.deleteConversation(id)
+    if (store().conversationId === id) a.clear()
+    a.toast({ tone: 'info', title: 'گفتگو حذف شد', detail: 'پاسخ‌ها و شواهدشان در آرشیو می‌مانند.' })
+  } catch (error) {
+    a.toast({ tone: 'error', title: 'حذف گفتگو ناموفق بود', detail: describeError(error) })
+  }
+  void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+}
+
+// ------------------------------------------------------------- the edit gate
+
+/**
+ * Confirm an agent's edit proposal. `propose_edit` wrote nothing; this is the
+ * browser's only path to `entryedit.apply` (`/entries/{id}/apply`), which
+ * re-syncs the case, parties, citations, graph and vault. The edited entry
+ * becomes the thread's focus, as in Streamlit's edit gate.
+ */
+export async function confirmEdit(messageId: string) {
+  const a = store()
+  const m = a.messages.find((x) => x.id === messageId)
+  const proposal = m?.result?.pending_edit
+  // A reopened proposal is never applied: the record may have changed since it was made.
+  if (!m || !proposal || m.editState || m.restored) return
+  a.setOrb('working')
+  try {
+    const { entry } = await api.applyEdit(proposal)
+    settleEdit(messageId, 'done', `ثبت شد — ${proposal.field_fa}: ${proposal.new_text}`)
+    const focus: Required<ConversationFocus> = { kind: 'entry', id: proposal.entry_id, label: asText(entry?.title) || proposal.entry_title }
+    a.set({ focus })
+    queueWrite((cid) => api.setFocus(cid, focus))
+    a.log({ kind: 'edited', text: `ویرایش «${proposal.field_fa}»: ${proposal.new_text}`.slice(0, 140), refs: [proposal.entry_id] })
+    a.toast({ tone: 'success', title: 'ویرایش در آرشیو ثبت شد', detail: 'پرونده، اشخاص، استنادها و گراف همگام شدند.' })
+    void refreshArchive()
+    settle()
+  } catch (error) {
+    a.toast({ tone: 'error', title: 'ویرایش ثبت نشد', detail: describeError(error) })
+    settle('error')
+  }
+}
+
+export function cancelEdit(messageId: string) {
+  settleEdit(messageId, 'cancelled', 'ویرایش انجام نشد.')
+}
+
+function settleEdit(messageId: string, outcome: 'done' | 'cancelled', text: string) {
+  const a = store()
+  a.patch(messageId, { editState: outcome })
+  // The outcome is its own turn, so a reopened thread knows the proposal was settled.
+  record(a.push({ role: 'assistant', text, editOf: messageId, editOutcome: outcome }))
 }
 
 export const refreshArchive = () => queryClient.invalidateQueries({ predicate: (q) => !['options', 'models', 'health'].includes(String(q.queryKey[0])) })
@@ -63,9 +168,11 @@ export async function ask(text: string, origin: Origin = 'assistant', forced?: I
   if (!trimmed || a.busy) return
   const ctx = currentContext()
   a.setBusy(true)
-  a.push({ role: 'user', text: trimmed, context: ctx, intent: forced })
+  const said = a.push({ role: 'user', text: trimmed, context: ctx, intent: forced })
   a.setOrb('processing')
   try {
+    await ensureConversation()
+    record(said)
     // Spoken session commands («گفتگوی جدید», «پروندهٔ جدید», «توقف»).
     if (origin === 'voice') {
       const { command } = await api.command(trimmed).catch(() => ({ command: null }))
@@ -131,7 +238,7 @@ export async function ask(text: string, origin: Origin = 'assistant', forced?: I
     if (useSettings.getState().speakReplies) speak(answer)
     settle()
   } catch (error) {
-    a.push({ role: 'assistant', text: '', error: describeError(error), retry: { text: trimmed, intent: forced } })
+    record(a.push({ role: 'assistant', text: '', error: describeError(error), retry: { text: trimmed, intent: forced } }))
     settle('error')
   } finally {
     store().setBusy(false)
@@ -151,7 +258,7 @@ async function runCommand(command: string) {
     return true
   }
   if (command === 'new_case') {
-    a.push({ role: 'assistant', text: 'متن جلسه یا سند را بگویید یا بنویسید — آن را به‌عنوان مطلب جدید ثبت می‌کنم.' })
+    record(a.push({ role: 'assistant', text: 'متن جلسه یا سند را بگویید یا بنویسید — آن را به‌عنوان مطلب جدید ثبت می‌کنم.' }))
     useSettings.getState().set({ intent: 'archive' })
     settle('idle')
     return true

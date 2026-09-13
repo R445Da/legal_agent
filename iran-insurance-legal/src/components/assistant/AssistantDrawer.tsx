@@ -12,6 +12,7 @@ import { blendOrb, useVoiceSignal } from '@/state/voice'
 import { sectionById } from '@/sections/registry'
 import { AIComposer } from './AIComposer'
 import { AIOrb, ORB_LABEL } from './AIOrb'
+import { ConversationsButton } from './Conversations'
 import { MessageControls } from './MessageControls'
 import { MessageView } from './Thread'
 
@@ -34,6 +35,7 @@ export function AssistantDrawer() {
   const orb = useAssistant((s) => s.orb)
   const clear = useAssistant((s) => s.clear)
   const busy = useAssistant((s) => s.busy)
+  const focus = useAssistant((s) => s.focus)
   const voice = useVoiceSignal()
   const mobile = useIsMobile()
   const waiting = useMemo(() => Object.values(runs).filter((r) => r.status === 'awaiting_input').length, [runs])
@@ -49,6 +51,7 @@ export function AssistantDrawer() {
     ctx.view && { k: 'نما', v: ctx.view },
     !ctx.entityId && ctx.tabLabel && { k: 'نما', v: ctx.tabLabel },
     ...Object.entries(ctx.filters ?? {}).map(([k, v]) => ({ k, v })),
+    focus?.label && { k: 'در حال کار روی', v: focus.label },
   ].filter(Boolean) as { k: string; v: string }[]
   const suggestions = SUGGESTIONS[ctx.entityKind === 'case' ? 'cases' : ctx.section ?? 'default'] ?? SUGGESTIONS.default!
 
@@ -91,6 +94,7 @@ export function AssistantDrawer() {
                   <div className="text-sm font-semibold">دستیار حقوقی</div>
                   <div className="text-[11px] text-white/40">{ORB_LABEL[state]} · آگاه از زمینهٔ صفحه</div>
                 </div>
+                <ConversationsButton size="sm" />
                 <button onClick={clear} aria-label="گفتگوی جدید" title="گفتگوی جدید" className="flex h-8 w-8 items-center justify-center rounded-xl text-white/40 hover:bg-white/[.06] hover:text-white"><Eraser className="h-4 w-4" /></button>
                 <button onClick={() => setOpen(false)} aria-label="کوچک کردن" className="flex h-8 w-8 items-center justify-center rounded-xl text-white/40 hover:bg-white/[.06] hover:text-white"><Minus className="h-4 w-4" /></button>
               </header>

@@ -26,9 +26,16 @@ export interface Message {
   context?: WorkspaceContext
   route?: { section: SectionId; tab?: string; record?: string; label: string }
   why?: string[]
+  /** What became of `result.pending_edit` — set by the edit gate. */
+  editState?: 'done' | 'cancelled'
+  /** On the turn that records a gate's outcome: the message whose proposal it settled. */
+  editOf?: string
+  editOutcome?: 'done' | 'cancelled'
+  /** Reopened from the server. A proposal on such a turn is shown, never applied — the record may have changed since. */
+  restored?: boolean
 }
 
-export type ActivityKind = 'routed' | 'answered' | 'filing' | 'gate' | 'committed' | 'abandoned' | 'undone' | 'failed' | 'saved' | 'deleted'
+export type ActivityKind = 'routed' | 'answered' | 'filing' | 'gate' | 'committed' | 'abandoned' | 'undone' | 'failed' | 'saved' | 'deleted' | 'edited'
 export interface Activity { id: string; at: string; kind: ActivityKind; text: string; refs: string[] }
 
 export interface Toast { id: string; tone: 'success' | 'error' | 'info'; title: string; detail?: string; undo?: () => Promise<void> | void }

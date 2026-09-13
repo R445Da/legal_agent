@@ -1,7 +1,8 @@
 import { requestSettings } from '@/state/settings'
 import { del, get, patch, post, qs, request } from './client'
 import type {
-  AnswerResult, ArchiveDocument, ArchiveState, CaseEntry, EntitySummary, EntryRun, Graph, Health, Intent, Label,
+  AnswerResult, ArchiveDocument, ArchiveState, CaseEntry, ConversationDetail, ConversationFocus, ConversationSummary, ConversationTurn,
+  EditProposal, EntitySummary, EntryRun, Graph, Health, Intent, Label,
   LawArticle, LawTitle, LegalCaseDetail, LegalCaseRecord, ModelEntry, Options, RetrieveResult, RunMode, RunReply, SimilarCase,
 } from './types'
 
@@ -28,6 +29,16 @@ export const api = {
   },
   assistant: (text: string, intent: Intent) => post<AnswerResult>('/assistant', { text, intent, model: requestSettings().model }, 180_000),
   answers: (limit = 50) => get<{ answers: Record<string, unknown>[] }>(`/answers${qs({ limit })}`),
+
+  // ---- conversations (the chat as rows) and the edit gate
+  conversations: (limit = 30) => get<{ conversations: ConversationSummary[] }>(`/conversations${qs({ limit })}`),
+  conversation: (id: string) => get<ConversationDetail>(`/conversations/${id}`),
+  deleteConversation: (id: string) => del<{ deleted: string }>(`/conversations/${id}`),
+  startConversation: () => post<Omit<ConversationSummary, 'messages'>>('/legal/api/conversations', {}),
+  addTurn: (id: string, turn: { role: 'user' | 'assistant'; text: string; intent?: string | null; model?: string | null; extra: Record<string, unknown> }) =>
+    post<ConversationTurn>(`/legal/api/conversations/${id}/messages`, turn),
+  setFocus: (id: string, focus: Required<ConversationFocus>) => request<{ focus: ConversationFocus }>(`/legal/api/conversations/${id}/focus`, { method: 'PUT', body: JSON.stringify(focus) }),
+  applyEdit: (proposal: EditProposal) => post<{ entry: CaseEntry }>(`/entries/${proposal.entry_id}/apply`, { proposal }),
 
   // ---- the entry pipeline (human-gated)
   startRun: (text: string, mode: RunMode, source?: string) => post<RunReply>('/runs', { text, mode, source, model: requestSettings().model }, 240_000),

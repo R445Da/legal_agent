@@ -15,6 +15,7 @@ import { blendOrb, useVoiceSignal } from '@/state/voice'
 import { TONES } from '@/sections/registry'
 import { AIComposer } from '@/components/assistant/AIComposer'
 import { AIOrb, AgentStatus } from '@/components/assistant/AIOrb'
+import { ConversationsButton, FocusChip } from '@/components/assistant/Conversations'
 import { MessageControls } from '@/components/assistant/MessageControls'
 import { MessageView } from '@/components/assistant/Thread'
 import { BrandMark, InboxButton, PaletteButton, PanelButton } from './TopActions'
@@ -42,9 +43,11 @@ export function HomeShell() {
   return (
     <div className="mesh grid-bg relative flex min-h-full flex-col">
       <div className="pointer-events-none absolute -top-24 start-1/3 h-80 w-80 rounded-full bg-indigo-500/10 blur-3xl" />
-      <header className="relative z-10 flex items-center justify-between px-5 py-5 lg:px-10">
+      {/* Above the hero (also z-10, later in the DOM), so the «گفتگوها» list opens over it. */}
+      <header className="relative z-20 flex items-center justify-between px-5 py-5 lg:px-10">
         <BrandMark />
         <div className="flex items-center gap-2">
+          <ConversationsButton />
           {active && <button onClick={clear} className="flex h-10 items-center gap-2 rounded-2xl border border-white/10 bg-white/[.04] px-3 text-xs text-white/60 hover:text-white"><Eraser className="h-3.5 w-3.5" /><span className="hidden sm:inline">گفتگوی جدید</span></button>}
           <AgentStatus state={state} className="hidden md:inline-flex" />
           <PaletteButton label="فرمان" />
@@ -114,6 +117,7 @@ function Conversation() {
         <div ref={bottom} />
       </div>
       <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-ink-900 via-ink-900/95 to-transparent px-4 pb-5 pt-6">
+        <FocusChip className="mb-2" />
         <AIComposer origin="home" size="lg" autoFocus />
         <MessageControls className="mt-2.5" />
       </div>

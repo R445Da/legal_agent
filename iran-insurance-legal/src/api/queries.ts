@@ -12,6 +12,7 @@ export const archiveKey = () => ['state', conn()]
 export const useArchive = () => useQuery({ queryKey: archiveKey(), queryFn: api.state, staleTime: 60_000 })
 export const useOptions = () => useQuery({ queryKey: ['options', conn()], queryFn: api.options, staleTime: 10 * 60_000 })
 export const useModels = () => useQuery({ queryKey: ['models', conn()], queryFn: api.models, staleTime: 10 * 60_000 })
+export const useConversations = (enabled = true) => useQuery({ queryKey: ['conversations', conn()], queryFn: () => api.conversations(20), enabled, staleTime: 0 })
 export const useHealth = () => {
   useConnection((s) => s.baseUrl + s.token)
   return useQuery({ queryKey: ['health', conn()], queryFn: api.health, refetchInterval: 20_000, retry: false })
