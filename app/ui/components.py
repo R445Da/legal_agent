@@ -288,3 +288,57 @@ def rowlist_start() -> None:
 
 def empty(message: str) -> None:
     card(f"<div class='meta' style='text-align:center;padding:18px'>{esc(message)}</div>")
+
+def entity_ticket(profile: dict, *, key_prefix: str, on_open=None) -> None:
+    """One person or organisation as a ledger ticket: who they are, the numbers,
+    and every case they appear in as a clickable row.
+
+    The same vocabulary the dashboard uses — `ledger()` metrics over a bordered
+    panel — because the answer to «وکیل رضا کریمی در چه پرونده‌هایی بوده؟» and
+    the dashboard's count of that lawyer's cases are the same fact, and they
+    should not look like two different systems answering.
+
+    The rows are the record, not a link beside it: clicking one opens the case.
+    """
+    from app.ui.theme import chips, esc, fa_num, ledger, panel
+
+    cases = profile.get("cases") or []
+    closed = sum(1 for c in cases if (c.get("status") or "") == "closed")
+    running = sum(1 for c in cases if (c.get("status") or "") == "open")
+    roles = ", ".join(profile.get("roles_fa") or []) or "—"
+
+    panel(
+        esc(profile.get("name") or "—"),
+        "<div class='meta'>" + esc(roles) + "</div>"
+        + chips([f"{line} ({fa_num(n)})" for line, n in (profile.get("by_line") or [])[:4]
+                 if line and line != "—"], teal=True),
+        sub="شخص" if profile.get("type") == "person" else "سازمان",
+    )
+    columns = st.columns(3)
+    for column, block in zip(columns, (
+        ledger(len(cases), "پرونده", accent="teal"),
+        ledger(closed, "مختومه"),
+        ledger(running, "جاری", accent="amber"),
+    )):
+        column.markdown(block, unsafe_allow_html=True)
+
+    if not cases:
+        empty("پرونده‌ای برای این شخص ثبت نشده است.")
+        return
+
+    rowlist_start()
+    for index, case in enumerate(cases):
+        number = case.get("case_number") or "—"
+        outcome = (case.get("outcome") or "").strip()
+        if row(
+            case.get("title") or f"پروندهٔ {number}",
+            f"شماره {fa_num(number)} · نقش: {case.get('role_fa') or '—'} · {case.get('status_fa') or '—'}",
+            (outcome[:140] or None),
+            key=f"{key_prefix}_case_{index}",
+        ):
+            if on_open:
+                on_open(case)
+            else:
+                st.session_state["open_case"] = case.get("case_number") or case.get("id")
+                st.session_state["view"] = "cases"
+                st.rerun()

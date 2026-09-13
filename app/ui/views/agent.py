@@ -1016,7 +1016,11 @@ def _render(cfg: dict, message: dict, index: int) -> None:
         # empty bubble — that is what made replies look like they vanished once
         # the rerun replaced the live stream with the saved transcript.
         components.reasoning_panel(message.get("reasoning"), expanded=not body)
-        if body:
+        if message.get("entity_profile"):
+            # An answer that came from the party table keeps its ticket when the
+            # transcript is redrawn, instead of collapsing back into prose.
+            components.entity_ticket(message["entity_profile"], key_prefix=f"hist_entity_{index}")
+        elif body:
             st.markdown(f"<div class='answer'>{esc(body)}</div>", unsafe_allow_html=True)
         else:
             st.warning(
@@ -1046,7 +1050,7 @@ def _render(cfg: dict, message: dict, index: int) -> None:
                     st.session_state["laws_q"] = message.get("question", "")
                     st.session_state["view"] = "laws"
                     st.rerun()
-        if message.get("case_hits"):
+        if message.get("case_hits") and not message.get("entity_profile"):
             with st.expander(f"پرونده‌های استنادشده ({fa_num(len(message['case_hits']))})"):
                 components.rowlist_start()
                 for i, c in enumerate(message["case_hits"], 1):
@@ -1216,7 +1220,14 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
     with st.spinner("در حال جستجو در بایگانی پرونده‌ها…"):
         result = aio.run(_go())
     components.reasoning_panel(result.get("reasoning"))
-    st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
+
+    # A question about a named person or organisation is answered from the
+    # party table, so it has a record to show rather than a paragraph to read:
+    # the same ledger ticket the dashboard is drawn in, every case clickable.
+    if result.get("entity"):
+        components.entity_ticket(result["entity_profile"], key_prefix="live_entity")
+    else:
+        st.markdown(f"<div class='answer'>{esc(result.get('answer',''))}</div>", unsafe_allow_html=True)
     _show_similar(result, offset=len(result.get("cases") or []), key_prefix="live_cases")
     components.provenance_panel(result.get("provenance"), key_prefix="live_cases")
     components.steps_panel(result.get("steps", []))
@@ -1226,6 +1237,7 @@ def _answer_from_cases(cfg: dict, text: str) -> None:
     ]
     _say("assistant", intent="cases", text=result.get("answer", ""), case_hits=hits, model=result.get("model"),
          provenance=result.get("provenance"), reasoning=result.get("reasoning"),
+         entity_profile=result.get("entity_profile"),
          **{k: result[k] for k in ("similar_cases", "lessons", "advice") if result.get(k)})
 
 

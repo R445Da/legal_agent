@@ -665,6 +665,8 @@ async def answer_case_question(
             "answer": _roster_answer(profile),
             "cases": profile["cases"],
             "entity": {k: profile[k] for k in ("id", "type", "name", "roles_fa", "case_count")},
+            # the whole profile, for the UI's ticket
+            "entity_profile": profile,
             # The cases listed *are* the answer, so there is nothing to widen
             # the net for — showing "similar" cases here is what buried the
             # roster under other people's files.
