@@ -10,9 +10,9 @@ import streamlit as st
 
 from app.rag import casebase, graph
 from app.rag.casebase import STATUS_FA
-from app.ui import aio, components
+from app.ui import aio, components, data
 from app.ui.resources import session
-from app.ui.theme import card, case_id, chips, esc, fa_num, kv, timeline
+from app.ui.theme import answer, card, case_id, chips, esc, fa_num, kv, timeline
 
 # The archive's role keys (casebase.ROLE_FA) plus the older English ones the
 # first extractions used, so neither renders as a raw key.
@@ -22,7 +22,8 @@ _ROLE_FA = {
     "judge": "قاضی", "witness": "شاهد", "expert": "کارشناس", "other": "سایر",
 }
 
-CASE_TABS = ["خلاصه", "تایم‌لاین", "اسناد و مدخل‌ها", "پرونده‌های مشابه", "وضعیت و مالی", "گراف و مستندات"]
+CASE_TABS = ["خلاصه", "تایم‌لاین", "پرسش از این پرونده", "اسناد و مدخل‌ها",
+             "پرونده‌های مشابه", "وضعیت و مالی", "گراف و مستندات"]
 
 _ALL = "همه"
 
@@ -105,17 +106,108 @@ def _tab_summary(case: dict) -> None:
 
 
 def _tab_timeline(case: dict) -> None:
-    if not case["events"]:
+    """The case's dates, and a form to put another one on it.
+
+    Added items go into the same `Entry.events` stream the extracted ones live
+    in (see `app/rag/agenda.py`), so a hearing noted here shows up in ۰۴
+    رویدادها and on the dashboard without any further wiring — the archive and
+    the dashboard stay one answer.
+    """
+    from app.rag import agenda
+
+    if case["events"]:
+        card(timeline([
+            {
+                "date": e.get("date"),
+                "title": (e.get("what") or e.get("type") or "—")
+                         + ("  ⏳" if agenda.is_manual(e) else ""),
+                "detail": e.get("detail"),
+                "source": agenda.SOURCE_FA.get(e.get("source"), e.get("source") or ""),
+            }
+            for e in case["events"]
+        ]))
+    else:
         components.empty("رویدادی ثبت نشده است.")
+
+    with st.expander("افزودن رویداد یا یادآور به این پرونده"):
+        st.caption(
+            "تاریخ را همان‌طور که در پرونده نوشته می‌شود وارد کنید — مثلاً ۱۴۰۳/۰۷/۰۵. "
+            "این مورد در همین پرونده، در «رویدادها» و در داشبورد دیده می‌شود."
+        )
+        date = st.text_input("تاریخ", key=f"ev_date_{case['id']}", placeholder="۱۴۰۳/۰۷/۰۵")
+        title = st.text_input("عنوان", key=f"ev_title_{case['id']}",
+                              placeholder="جلسهٔ رسیدگی / مهلت لایحه")
+        detail = st.text_area("توضیح (اختیاری)", key=f"ev_detail_{case['id']}", height=70)
+        reminder = st.checkbox("این یک یادآور است (کاری که باید انجام شود)",
+                               key=f"ev_rem_{case['id']}", value=True)
+        if st.button("افزودن به خط زمان", key=f"ev_add_{case['id']}", type="primary"):
+            if not title.strip():
+                st.warning("عنوان را بنویسید.")
+            else:
+                async def _go():
+                    async with session() as s:
+                        return await agenda.add_event(
+                            s, case["id"], date=date, title=title,
+                            detail=detail, reminder=reminder,
+                        )
+                try:
+                    added = aio.run(_go())
+                except Exception as error:  # noqa: BLE001
+                    components.error_box(error)
+                    return
+                if added is None:
+                    st.error("مدخلی برای این پرونده یافت نشد.")
+                else:
+                    data.refresh()
+                    st.success("به خط زمان افزوده شد.")
+                    st.rerun()
+
+
+def _tab_ask(cfg: dict, case: dict) -> None:
+    """Ask a question of this case's own documents.
+
+    The archive-wide search in ۰۶ answers from everything; this answers from
+    this case, which is what someone reading a file actually wants — «در این
+    پرونده کارشناس چه گفت؟» should not have to compete with eight hundred other
+    rulings to be found.
+    """
+    from app.rag.pipeline import answer_question
+
+    st.caption(f"پاسخ فقط از اسناد همین پرونده — {fa_num(len(case['entries']))} مدخل.")
+    question = st.text_input(
+        "پرسش", key=f"ask_q_{case['id']}", label_visibility="collapsed",
+        placeholder="مثلاً: کارشناس چه نظری داد؟ مهلت لایحه تا کی بود؟",
+    )
+    if not st.button("بپرس", key=f"ask_go_{case['id']}", type="primary") or not question.strip():
         return
-    card(timeline([
-        {
-            "date": e.get("date"),
-            "title": e.get("what") or e.get("type") or "—",
-            "detail": e.get("detail"),
-        }
-        for e in case["events"]
-    ]))
+
+    document_ids = [e.get("document_id") for e in case["entries"] if e.get("document_id")]
+    if not document_ids:
+        components.empty("سند نمایه‌شده‌ای برای این پرونده نیست.")
+        return
+
+    async def _go():
+        async with session() as s:
+            # `retrieval` is spread into retrieve_scored(), so scoping needs
+            # no new parameter on the pipeline.
+            return await answer_question(
+                s, cfg["llm"], question, top_k=cfg.get("top_k") or 6,
+                max_tokens=cfg.get("max_tokens") or 1400,
+                retrieval={"document_ids": document_ids},
+            )
+
+    with st.spinner("در حال خواندن اسناد این پرونده…"):
+        try:
+            result = aio.run(_go())
+        except Exception as error:  # noqa: BLE001
+            components.error_box(error)
+            return
+    components.reasoning_panel(getattr(result, "reasoning", None))
+    answer(getattr(result, "answer", "") or "")
+    contexts = getattr(result, "contexts", None) or []
+    if contexts:
+        with st.expander(f"مستندات ({fa_num(len(contexts))} قطعه)"):
+            components.citations(contexts, key_prefix=f"askcase_{case['id']}")
 
 
 def _tab_documents(case: dict, *, on_open_doc) -> None:
@@ -273,7 +365,7 @@ def _tab_status(case: dict) -> None:
     st.json(entities, expanded=False)
 
 
-def _detail(case: dict, state: dict, *, on_open, on_open_doc) -> None:
+def _detail(cfg: dict, case: dict, state: dict, *, on_open, on_open_doc) -> None:
     if st.button("→ بازگشت به فهرست", key="case_back"):
         st.session_state["open_case"] = None
         st.rerun()
@@ -294,12 +386,14 @@ def _detail(case: dict, state: dict, *, on_open, on_open_doc) -> None:
     with tabs[1]:
         _tab_timeline(case)
     with tabs[2]:
-        _tab_documents(case, on_open_doc=on_open_doc)
+        _tab_ask(cfg, case)
     with tabs[3]:
-        _tab_similar(case, state, on_open=on_open)
+        _tab_documents(case, on_open_doc=on_open_doc)
     with tabs[4]:
-        _tab_status(case)
+        _tab_similar(case, state, on_open=on_open)
     with tabs[5]:
+        _tab_status(case)
+    with tabs[6]:
         _tab_graph(case)
 
 
@@ -318,7 +412,7 @@ def render(cfg: dict, state: dict) -> None:
         from app.ui.data import find_case
         case = find_case(state, open_case)
         if case:
-            _detail(case, state, on_open=on_open, on_open_doc=on_open_doc)
+            _detail(cfg, case, state, on_open=on_open, on_open_doc=on_open_doc)
             return
         st.session_state["open_case"] = None
 

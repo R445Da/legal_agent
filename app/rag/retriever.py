@@ -73,8 +73,18 @@ async def retrieve(session: AsyncSession, query: str, top_k: int = 5) -> list[Ch
 FILTERABLE = ("collection", "year", "group", "case_number", "branch", "doc_kind")
 
 
-def _apply_filters(stmt, collection: str | None, filters: dict | None):
+def _apply_filters(stmt, collection: str | None, filters: dict | None,
+                   document_ids: list | None = None):
+    """`document_ids` restricts retrieval to named documents.
+
+    Metadata filters match on what the ingester happened to parse out of a
+    file, which is not always the number a case is filed under; a caller that
+    already knows exactly which documents belong to a case — the case view does
+    — should be able to say so rather than hope the strings agree.
+    """
     conds = []
+    if document_ids:
+        stmt = stmt.where(Chunk.document_id.in_(list(document_ids)))
     if collection:
         conds.append(Document.doc_metadata["collection"].astext == collection)
     for key, val in (filters or {}).items():
@@ -88,6 +98,7 @@ def _apply_filters(stmt, collection: str | None, filters: dict | None):
 async def _vector_candidates(
     session: AsyncSession, query: str, limit: int,
     collection: str | None = None, filters: dict | None = None,
+    document_ids: list | None = None,
 ) -> list[Chunk]:
     q_vec = await embed_query(normalize_fa(query))
     distance = Chunk.embedding.cosine_distance(q_vec)
@@ -97,12 +108,14 @@ async def _vector_candidates(
         .order_by(distance)
         .limit(limit)
     )
-    return list((await session.execute(_apply_filters(stmt, collection, filters))).scalars().all())
+    return list((await session.execute(
+        _apply_filters(stmt, collection, filters, document_ids))).scalars().all())
 
 
 async def _lexical_candidates(
     session: AsyncSession, query: str, limit: int,
     collection: str | None = None, filters: dict | None = None,
+    document_ids: list | None = None,
 ) -> list[Chunk]:
     tokens = _query_tokens(query)
     if not tokens:
@@ -115,7 +128,8 @@ async def _lexical_candidates(
         .order_by(func.ts_rank_cd(Chunk.text_search, tsq).desc())
         .limit(limit)
     )
-    return list((await session.execute(_apply_filters(stmt, collection, filters))).scalars().all())
+    return list((await session.execute(
+        _apply_filters(stmt, collection, filters, document_ids))).scalars().all())
 
 
 def effective_config(hybrid: bool | None = None, rerank: bool | None = None) -> dict:
@@ -144,6 +158,7 @@ async def retrieve_scored(
     rerank: bool | None = None,
     collection: str | None = None,
     filters: dict | None = None,
+    document_ids: list | None = None,
     candidates: int | None = None,
     rerank_top: int | None = None,
     rerank_model: str | None = None,
@@ -161,9 +176,10 @@ async def retrieve_scored(
     n_rerank_top = max(rerank_top or _int_env("RERANK_TOP", 12), top_k)
 
     t0 = time.perf_counter()
-    vec_rows = await _vector_candidates(session, query, n_candidates, collection, filters)
+    vec_rows = await _vector_candidates(session, query, n_candidates, collection, filters, document_ids)
     t1 = time.perf_counter()
-    lex_rows = await _lexical_candidates(session, query, n_candidates, collection, filters) if use_hybrid else []
+    lex_rows = (await _lexical_candidates(session, query, n_candidates, collection, filters, document_ids)
+                if use_hybrid else [])
     t2 = time.perf_counter()
 
     if trace is not None:
