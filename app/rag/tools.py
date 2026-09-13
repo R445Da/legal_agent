@@ -319,7 +319,38 @@ def _ev_case_graph(out: dict) -> list[dict]:
 _STR = {"type": "string"}
 _OPT_INT = {"type": ["integer", "null"], "description": "اختیاری"}
 
+async def _archive_query(session, llm, query: str, within: list | None = None) -> dict:
+    """«پرسش از آرشیو»: count the archive by label, not retrieve from it."""
+    from app.rag import archive_query
+
+    result = await archive_query.run(session, llm, query, within=within or None)
+    return {
+        "count": result["count"],
+        "labels": (result["facets"]["tags"] + result["facets"]["insurance_lines"]
+                   + result["facets"]["case_types"]),
+        "by_label": result["by_label"][:12],
+        "by_status": result["by_status"],
+        "by_line": result["by_line"][:8],
+        "case_ids": result["case_ids"][:60],
+        "answer": archive_query.summarise(result),
+    }
+
+
 TOOLS: list[Tool] = [
+    Tool(
+        "archive_query",
+        "شمارش و دسته‌بندی آرشیو بر اساس برچسب‌ها: «چند پرونده دربارهٔ ... داریم»، "
+        "«پرتکرارترین برچسب‌ها در رشتهٔ ...»، «از همان‌ها چند تا مختومه شده». "
+        "برچسب‌های مرتبط را از واژگان واقعی آرشیو انتخاب و سپس در پایگاه داده "
+        "می‌شمارد — نه جستجوی متنی. برای پالایش پاسخ قبلی، `within` را با "
+        "شناسه‌های همان مجموعه بفرستید.",
+        {"type": "object", "properties": {
+            "query": {"type": "string", "description": "پرسش دربارهٔ ترکیب آرشیو"},
+            "within": {"type": ["array", "null"], "items": {"type": "string"},
+                       "description": "شناسهٔ پرونده‌های پاسخ قبلی، برای پالایش"},
+        }, "required": ["query"]},
+        _archive_query,
+    ),
     Tool(
         "search_law",
         "جستجو در پایگاه قوانین: متن و مفاد مواد قانون بیمه، قانون شخص ثالث، تأمین اجتماعی، آیین‌نامه‌ها و آرای وحدت رویه.",
