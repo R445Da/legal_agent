@@ -13,3 +13,8 @@ openai
 pgserver       # bundled PostgreSQL + pgvector, runs as the current user (needs Python <= 3.12)
 fastembed      # local ONNX embeddings, no torch, offline after first download
 streamlit      # the product UI (streamlit run streamlit_app.py)
+
+# Gemini's live transcription model — the default speech-to-text
+# backend whenever GEMINI_API_KEY is set (app/rag/gemini_stt.py).
+# Decoding the browser's recording to PCM also needs ffmpeg on PATH.
+google-genai
