@@ -173,6 +173,34 @@ async def neighborhood(
             "nodes": list(nodes.values()), "edges": list(edges.values())}
 
 
+async def whole(
+    session: AsyncSession, *, types: tuple[str, ...] = (), limit: int = 20000,
+) -> dict:
+    """The entire graph, not a walk from one node — the export path.
+
+    `neighborhood()` answers "what is around this record"; this answers "what is
+    in the archive", which is what a dump to Cypher or to a vault needs.
+    `types` keeps the edge to those whose *both* ends are wanted, so asking for
+    cases and laws does not drag every entry and document along with them.
+    """
+    rows = list((await session.scalars(select(GraphEdge).limit(limit))).all())
+    nodes: dict[tuple[str, str], dict] = {}
+    edges: list[dict] = []
+    for edge in rows:
+        if types and (edge.src_type not in types or edge.dst_type not in types):
+            continue
+        edges.append({
+            "src": {"type": edge.src_type, "id": edge.src_id},
+            "relation": edge.relation, "relation_fa": RELATION_FA.get(edge.relation, edge.relation),
+            "dst": {"type": edge.dst_type, "id": edge.dst_id},
+            "weight": edge.weight, "meta": edge.meta or {},
+        })
+        for other in ((edge.src_type, edge.src_id), (edge.dst_type, edge.dst_id)):
+            nodes.setdefault(other, {"type": other[0], "id": other[1]})
+    await _labels_for(session, nodes)
+    return {"nodes": list(nodes.values()), "edges": edges}
+
+
 # --------------------------------------------------------------------------- #
 # Renderers
 # --------------------------------------------------------------------------- #

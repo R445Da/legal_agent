@@ -31,6 +31,7 @@ from app.rag.catalog import search_entries
 from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
 from app.ui import aio, askflow, components, data, speak
+from app.ui.views import graphmap
 from app.ui.resources import session
 from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
@@ -326,6 +327,13 @@ def _answer_with_agent(cfg: dict, text: str) -> None:
         extra={"loop": result.mode, "rounds": result.rounds},
     )
     _persist_answer("agent", text, result.text, block, model=result.model)
+
+    # Light up section ۲۰ with whatever the tools actually reached, so the
+    # graph shows the run instead of only the transcript.
+    graphmap.highlight_for([
+        str(item.get("case_number") or item.get("title") or item.get("id") or "")
+        for item in (result.evidence or [])
+    ])
 
     components.reasoning_panel(result.reasoning)
     if result.text.strip():

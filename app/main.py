@@ -39,7 +39,7 @@ from app.rag.orchestrator import (
 )
 from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
-from app.rag import casebase, catalog, ci, conversation, graph, hooks, lawbase, workflow
+from app.rag import casebase, catalog, ci, conversation, graph, hooks, lawbase, vaultmap, vaultsync, workflow
 from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
@@ -244,6 +244,36 @@ async def health():
         "embedding_model": settings.embedding_model,
         "stt_available": stt.enabled(),
     }
+
+
+@app.get("/graph/vault", dependencies=auth)
+async def graph_vault():
+    """The archive graph as JSON: the notes under `آرشیو/` and the wikilinks
+    between them.
+
+    Section ۲۰ of the Streamlit app renders exactly this payload, and it is a
+    route rather than a view-local helper so any other frontend can draw the
+    same graph without importing Streamlit. `nodes` carry a `uri` that opens
+    the note in Obsidian.
+
+    An empty `nodes` list means the vault has not been exported yet — run
+    `python -m scripts.export_vault`; it is not an error.
+    """
+    data = vaultmap.load()
+    return {
+        "nodes": data["nodes"],
+        "edges": data["edges"],
+        "tags": data["tags"],
+        "vault": data["vault"],
+        "exported": bool(data["nodes"]),
+    }
+
+
+@app.post("/graph/vault/export", dependencies=auth)
+async def graph_vault_export():
+    """Write the database into the vault as notes. Writes only inside `آرشیو/`."""
+    async with SessionLocal() as session:
+        return await vaultsync.export_all(session)
 
 
 @app.post("/transcribe", dependencies=auth)

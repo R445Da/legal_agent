@@ -1,0 +1,48 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  html, body { margin: 0; padding: 0; overflow: hidden; font-family: Vazirmatn, system-ui, sans-serif; }
+  #wrap { position: relative; width: 100%; }
+  canvas { display: block; width: 100%; border-radius: 10px; cursor: grab; }
+  canvas.grabbing { cursor: grabbing; }
+
+  .bar {
+    position: absolute; top: 10px; right: 10px; left: 10px; display: flex; gap: 6px;
+    align-items: center; flex-wrap: wrap; direction: rtl; pointer-events: none;
+  }
+  .bar > * { pointer-events: auto; }
+  #q {
+    font: 12px Vazirmatn, system-ui, sans-serif; padding: 5px 9px; border-radius: 7px;
+    min-width: 150px; outline: none; direction: rtl;
+  }
+  .chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px; cursor: pointer;
+    border: 1px solid transparent; user-select: none; white-space: nowrap;
+  }
+  .chip.off { opacity: .35; }
+  .chip .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 5px; }
+
+  #tip {
+    position: absolute; pointer-events: none; display: none; direction: rtl;
+    font-size: 11px; padding: 6px 9px; border-radius: 7px; max-width: 260px; line-height: 1.7;
+  }
+  #tip b { font-size: 12px; }
+  #legend2 {
+    position: absolute; bottom: 8px; right: 10px; direction: rtl;
+    font-size: 10px; opacity: .75; display: flex; gap: 10px;
+  }
+</style>
+
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div class="bar">
+    <input id="q" placeholder="جستجو در گراف…">
+    <span id="legend"></span>
+  </div>
+  <div id="tip"></div>
+  <div id="legend2">
+    <span>● پرونده</span><span>■ قانون</span><span>◆ شخص</span><span>⬢ سازمان</span>
+  </div>
+</div>
+
+<script src="./graph.js"></script>

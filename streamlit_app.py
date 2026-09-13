@@ -26,8 +26,8 @@ import streamlit as st
 from app.ui import data, nav, resources, sidebar, theme
 from app.ui.views import (
     agent, analytics, bench, cases, dashboard, documents, editor, entities,
-    evaluate, events, gallery, ingest, labeling, laws, review, schema, search,
-    taxonomy, webhooks,
+    evaluate, events, gallery, graphmap, ingest, labeling, laws, review, schema,
+    search, taxonomy, webhooks,
 )
 
 st.set_page_config(
@@ -43,7 +43,7 @@ VIEWS = {
     "taxonomy": taxonomy, "review": review, "labeling": labeling,
     "analytics": analytics, "schema": schema, "eval": evaluate, "bench": bench,
     "laws": laws, "entities": entities, "editor": editor, "gallery": gallery,
-    "webhooks": webhooks,
+    "webhooks": webhooks, "graphmap": graphmap,
 }
 
 
