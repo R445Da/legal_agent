@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+/*
+ * بیمه ایران حقوقی — design tokens. The visual language (near-black ink
+ * ground, restrained indigo/cyan/violet mesh, soft glass, a conic orb) follows
+ * the reference prototype the product brief supplied; the layout is RTL-first.
+ */
+@theme {
+  --font-sans: "Vazirmatn", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink-950: #07080d;
+  --color-ink-900: #090b11;
+  --color-ink-850: #0b0d14;
+  --color-ink-800: #10121c;
+  --color-ink-700: #161927;
+
+  /* Suggested (AI, not yet committed) state — used only for proposals. */
+  --color-suggest: #a78bfa;
+
+  --ease-out-soft: cubic-bezier(.2, .7, .2, 1);
+
+  --animate-breathe: breathe 5.5s ease-in-out infinite;
+  --animate-spin-slow: spin 9s linear infinite;
+  --animate-spin-fast: spin 2.4s linear infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); opacity: .9 }
+    50% { transform: scale(1.035); opacity: 1 }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0 }
+    to { background-position: 200% 0 }
+  }
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  html { color-scheme: dark; -webkit-tap-highlight-color: transparent; }
+  body {
+    @apply bg-ink-900 font-sans text-[#f7f7fb] antialiased;
+    font-feature-settings: "ss01";
+    line-height: 1.7;
+    overscroll-behavior: none;
+  }
+  ::selection { background: rgba(107, 108, 255, .35); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .10); border-radius: 999px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  :focus-visible { outline: 2px solid rgba(129, 140, 248, .7); outline-offset: 2px; border-radius: 12px; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+
+  /* Native dropdown lists: without this the <option> panel renders on the OS
+     default white while the text stays light — white on white. */
+  select { background-color: var(--color-ink-800); }
+  select option, select optgroup {
+    background-color: var(--color-ink-800);
+    color: #f7f7fb;
+  }
+}
+
+@utility tnum { font-variant-numeric: tabular-nums; }
+
+/* Latin ids, sources and code stay LTR inside RTL text. */
+@utility ltr { direction: ltr; unicode-bidi: isolate; }
+
+@utility mesh {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(91, 97, 255, .16), transparent 26%),
+    radial-gradient(circle at 85% 10%, rgba(24, 214, 180, .10), transparent 25%),
+    radial-gradient(circle at 55% 85%, rgba(164, 78, 255, .08), transparent 28%),
+    linear-gradient(180deg, #0a0c13 0%, #090a0f 100%);
+}
+
+@utility grid-bg {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, .022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, .022) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* Glass is used sparingly: floating surfaces only (composer, assistant, palette). */
+@utility glass {
+  background: rgba(16, 18, 28, .70);
+  backdrop-filter: blur(24px) saturate(1.15);
+  -webkit-backdrop-filter: blur(24px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+/* Solid resting surface for workspace content — calmer than glass. */
+@utility surface {
+  background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, .018));
+  border: 1px solid rgba(255, 255, 255, .07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .03) inset, 0 18px 50px rgba(0, 0, 0, .18);
+}
+
+/* AI suggestion — visually distinct from committed state (dashed violet edge). */
+@utility suggested {
+  background: linear-gradient(180deg, rgba(167, 139, 250, .08), rgba(167, 139, 250, .03));
+  border: 1px dashed rgba(167, 139, 250, .45);
+}
+
+@utility orb-conic {
+  background: conic-gradient(from 210deg, #6b6cff, #7f67ff, #17d7c6, #6b6cff);
+}
+
+@utility shimmer-text {
+  background: linear-gradient(90deg, rgba(255,255,255,.35) 0%, rgba(255,255,255,.95) 50%, rgba(255,255,255,.35) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: var(--animate-shimmer);
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+}
