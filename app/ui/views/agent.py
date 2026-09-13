@@ -23,14 +23,14 @@ import streamlit as st
 from app.llm.meter import usage_of
 from app.rag import conversation
 from app.rag import provenance as prov
-from app.rag import runs, transcribe as stt, workflow
+from app.rag import runs, transcribe as stt, voice, workflow
 from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route, similar_stage
 from app.rag.ingest import get_document
 from app.rag.pipeline import SYSTEM_PROMPT, build_prompt, format_source, snippet
 from app.rag.catalog import search_entries
 from app.rag.retriever import retrieve_scored
 from app.rag.textnorm import normalize_fa
-from app.ui import aio, askflow, components, data
+from app.ui import aio, askflow, components, data, speak
 from app.ui.resources import session
 from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
@@ -1267,7 +1267,9 @@ def _controls(cfg: dict) -> None:
     settings and live in the left panel."""
     if st.session_state.pop("compose_intent", None) == "archive":
         st.session_state["agent_intent"] = "archive"
-    left, right = st.columns(2)
+    left, right, speaker = st.columns([2, 2, 1.4])
+    with speaker:
+        speak.toggle()
     with left:
         st.selectbox(
             "نوع پیام", ["auto", "query", "law", "cases", "agent", "archive", "analytics", "chat"],
@@ -1295,6 +1297,54 @@ def _controls(cfg: dict) -> None:
 def _active_llm(cfg: dict):
     """The model from the left panel."""
     return cfg["llm"]
+
+
+def _speak_latest() -> None:
+    """Read the newest assistant turn aloud, when the speaker is on.
+
+    Keyed on the turn's position in the transcript, so a rerun — Streamlit
+    re-executes the whole script on every interaction — replays nothing.
+    """
+    history = _history()
+    for index in range(len(history) - 1, -1, -1):
+        message = history[index]
+        if message.get("role") != "assistant":
+            continue
+        text = message.get("prompt") or message.get("text") or ""
+        if text:
+            speak.say(text, seq=index)
+        return
+
+
+def _voice_command(cfg: dict, spoken: str) -> bool:
+    """Act on a spoken command instead of sending it as a message.
+
+    Dictation has no buttons: someone filing a case by voice cannot reach for
+    «گفتگوی جدید» in the corner of the screen. `app/rag/voice.py` decides what
+    counts as a command — deliberately only phrases that would be useless as a
+    message, so nothing a person actually dictates is ever swallowed.
+    """
+    command = voice.command_of(spoken)
+    if command is None:
+        return False
+
+    if command == "new_chat":
+        st.session_state["chat"] = []
+        st.session_state.pop("pending_run", None)
+    elif command == "new_case":
+        st.session_state["agent_intent"] = "archive"
+    elif command == "stop":
+        run_id = st.session_state.pop("pending_run", None)
+        if run_id:
+            _wf_abandon(run_id)
+    elif command == "repeat":
+        st.session_state["_speak_again"] = True
+
+    if command != "new_chat":
+        # The acknowledgement is spoken as well as shown, so a voice-only user
+        # hears that the command landed instead of watching a silent screen.
+        _say("assistant", kind="ack", text=voice.ACK_FA.get(command, ""))
+    return True
 
 
 def _composer(cfg: dict) -> None:
@@ -1329,10 +1379,12 @@ def _composer(cfg: dict) -> None:
                 components.error_box(error)
                 return
             spoken = (result or {}).get("text", "").strip()
-            if spoken:
-                _submit(cfg, spoken)
-            else:
+            if not spoken:
                 st.warning("چیزی شنیده نشد.")
+            elif _voice_command(cfg, spoken):
+                st.rerun()
+            else:
+                _submit(cfg, spoken)
 
     if typed:
         _submit(cfg, typed)
@@ -1361,6 +1413,7 @@ def render(cfg: dict, state: dict) -> None:
 
     _source_preview(cfg)
     _answer_pending(cfg)
+    _speak_latest()
 
     _controls(cfg)
     _composer(cfg)
