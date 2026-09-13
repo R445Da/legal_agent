@@ -1268,3 +1268,13 @@ async def runs_events(run_id: str):
             await asyncio.sleep(2)
 
     return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+# --------------------------------------------------------------------------- #
+# بیمه ایران حقوقی — the React front end in iran-insurance-legal/.
+# Additive: nothing above depends on it.
+# --------------------------------------------------------------------------- #
+from app.iran_insurance_legal import mount_spa, router as legal_web_router  # noqa: E402
+
+app.include_router(legal_web_router, dependencies=auth)
+mount_spa(app)

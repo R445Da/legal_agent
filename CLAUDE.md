@@ -1,3 +1,73 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A Farsi-first legal RAG system for Iran Insurance (the "insurance edition" — see `docs/INSURANCE-EDITION.md`, `docs/SYSTEM-GUIDE.md`, `docs/v3.md`). One engine (`app/`) with three front ends:
+
+- **Streamlit** (`streamlit_app.py`, `app/ui/`) — the primary Persian RTL UI, 20 numbered sections (`app/ui/nav.py::SECTIONS`). It imports the engine directly; no API server needed.
+- **React — «بیمه ایران حقوقی»** (`iran-insurance-legal/`) — a rewrite of every Streamlit section on top of the JSON API. Additive: nothing in the engine or Streamlit depends on it. Its server-side routes live in `app/iran_insurance_legal/` (`/legal/api/*`, SPA served at `/legal/`), wired by a short block at the bottom of `app/main.py`.
+- `app/static/*.html` — frozen legacy UIs. Do not add features there.
+
+## Commands
+
+Python ≤ 3.12 is required (`pgserver`). Always use the venv binaries (`.venv/bin/python`, never bare `python`).
+
+```bash
+uv venv --python 3.12 && uv pip install -r requirements.txt -r requirements-dev.txt
+cp .env.example .env                                   # LLM_PROVIDER=mock runs fully offline
+
+.venv/bin/python -m scripts.seed_mock --reset --n 120  # deterministic 120-case insurance archive (+ data/laws/laws.json)
+.venv/bin/streamlit run streamlit_app.py --server.port 8504
+scripts/up.sh                                          # FastAPI on :8000 (Ollama/9router if configured)
+scripts/legal-web.sh --offline                         # React UI on :5173 + API on :8000, mock LLM, own .pgdata-legal-web
+scripts/legal-web.sh --build                           # build the React app and serve it at http://localhost:8000/legal/
+scripts/doctor.sh                                      # diagnose servers / keys / network (see docs/RUNBOOK.md)
+scripts/restart-ui.sh                                  # required after editing .env — processes keep the .env they started with
+```
+
+Tests and checks (CI runs exactly these, see `.github/workflows/docker.yml`):
+
+```bash
+.venv/bin/ruff check app scripts tests
+.venv/bin/python -m pytest -q -m "not db"              # unit tests, no database
+.venv/bin/python -m pytest -q -m db                    # needs a DB seeded by scripts.seed_mock
+.venv/bin/python -m pytest tests/test_similar.py::test_name -q   # one test
+.venv/bin/python -m scripts.ui_smoke                   # renders every Streamlit section headlessly
+scripts/check.sh                                       # smoke-tests every API endpoint (BASE=... to target another host)
+.venv/bin/python -m scripts.eval                       # retrieval metrics against eval/farsi.jsonl
+.venv/bin/python -m scripts.demo_stages                # runs the demo stages (app/demo/stages.py) end to end
+
+cd iran-insurance-legal && npm run typecheck && npm test && npm run build   # React: tsc, vitest, vite
+```
+
+`tests/conftest.py` pins the environment (mock LLM, `hash://384` embeddings, `PG_DATA_DIR=.pgdata-test`) before any `app.*` import, so `.env` never leaks into tests.
+
+## Architecture
+
+**LLM layer (`app/llm/`).** Nothing outside `app/llm/` imports a concrete provider — use `factory.get_llm_provider()` or `registry.resolve("provider::model")`. Every `generate()` takes `**knobs` and must silently ignore ones it does not support; `knobs.knobs_for()` says which controls a model accepts, and the UIs render one widget per knob. `mock` is a rule-based offline stand-in used by tests, CI and UI walkthroughs.
+
+**Routing (`app/rag/orchestrator.py::route`).** One router for every UI: `query | law | cases | agent | archive | analytics | chat | unclear`. Keyword shortcuts skip the model (e.g. «ماده ۳۰ قانون بیمه…» → `law`); low-confidence `archive` becomes `unclear` rather than a guessed filing. `run_assistant()` executes a routed message; `/legal/api/route` returns the intent without executing.
+
+**Retrieval (`retriever.py`, `pipeline.py`, `catalog.search_entries`).** Chunk path: normalize_fa → embed → pgvector + Postgres FTS → RRF → optional cross-encoder rerank. Entry path: FTS over `Entry.text_search`, terms filtered by document frequency. Entries and chunks enter the prompt as one numbered `[n]` sequence — anything unnumbered is ignored by the system prompt, by design.
+
+**Filing is a human-gated state machine (`app/rag/workflow.py`).** `classify → extract → references → timeline → similar → labels → commit`, persisted in `runs`/`run_steps` (`app/rag/runs.py`) so a reload or model failure loses nothing. Modes: `review` (one stop), `steps` (every gate), `auto`, `conversation` (`app/rag/conversation.py` asks for missing fields turn by turn). Nothing is written to the archive before `commit`; every LLM step has a deterministic fallback.
+
+**Relational side is derived from entries.** `commit_entry` / `catalog.update_entry` call `casebase.sync_entry`, which rebuilds `legal_cases`, persons/organizations, case parties, citations (`legal_refs` via `lawbase`) and `graph_edges`. `POST /archive/resync` rebuilds all of it. The case views still fold entries with `cases.derive_cases()` and attach the `legal_cases` row as `record`.
+
+**Other subsystems.** `provenance.py` persists answers with an evidence ledger (`/answers`); `hooks.py` signed outbound webhooks and `ci.py` inbound CI events; `vaultsync.py`/`vaultmap.py` export the archive as an Obsidian vault under `graphify-out/obsidian/آرشیو/` (section ۲۰ draws it via `/graph/vault`).
+
+**React front end (`iran-insurance-legal/src/`).** The API is the authoritative store; the browser never mutates archive state except through confirmed API calls. `api/` (typed client + TanStack Query; `['state']` mirrors Streamlit's `data.load()` via `/legal/api/state`), `assistant/runtime.ts` (navigation → `/legal/api/route` → executor; filings go to `/runs` and stop at workflow gates rendered by `RunCard`), `state/` (zustand: shell tabs + deep links `#/s/<section>/<tab>/<record>`, settings = the Streamlit left panel), `sections/` (one file per Streamlit section, registry in `sections/registry.ts`). RTL-first: use logical Tailwind classes (`ms-/me-/ps-/pe-/start-/end-`) and route every number through `lib/format.ts::fa()`.
+
+## Gotchas
+
+- Config is read from `os.environ` in several modules at import time, not only `app/config.py` (`EMBEDDING_DIM` in `db/models.py`, retrieval toggles `HYBRID`/`RERANK`/`RRF_*` in `retriever.py`, `ROUTER_MODEL` in the orchestrator). `EMBEDDING_MODEL`, `EMBEDDING_DIM` and `EMBEDDING_PREFIXES` must agree; changing them needs `scripts.reembed` (or `ingest --reset` + `extract --reset`).
+- `docker/seed.dump` predates newer columns/tables: after restoring it run `scripts.migrate_fts` **and** `scripts.migrate_runs`. Schema changes otherwise rely on `create_all` (no migrations).
+- Streamlit: the engine is async, Streamlit is not — go through `app/ui/aio.py` (one long-lived loop) and build cached resources on the script thread (`resources.init()`), never lazily inside a coroutine. After any write call `data.refresh()`. Latin digits in the UI are a bug (`theme.fa_num`). Never put `direction: rtl` on `stAppViewContainer`.
+- Extraction is model output: string fields arrive as lists and vice versa — normalise (`cases._as_strings`, `utils.asText` in React) before rendering.
+- `.env` holds live keys (gitignored) — never print it or commit it.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
