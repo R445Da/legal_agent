@@ -34,14 +34,6 @@ from app.ui import aio, askflow, components, data, speak
 from app.ui.resources import session
 from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
 
-_EXAMPLES = [
-    "ماده ۳۰ قانون بیمه دربارهٔ جانشینی چه می‌گوید؟",
-    "پرونده‌های بازیافت از رانندهٔ فاقد گواهینامه چطور تمام شده‌اند؟",
-    "وکیل رضا کریمی در چه پرونده‌هایی بوده؟",
-    "چند پرونده شخص ثالث داریم؟",
-]
-
-
 def _history() -> list[dict]:
     return st.session_state.setdefault("chat", [])
 
@@ -1402,6 +1394,47 @@ def _composer(cfg: dict) -> None:
         _submit(cfg, typed)
 
 
+def _home(cfg: dict) -> None:
+    """The empty-chat screen: what this assistant can be asked, ready to click.
+
+    The prompts come from `app/ui/prompts.py`, which is the same list the evals
+    run — so everything advertised here is something that is actually checked,
+    and a prompt cannot quietly rot into a demo that no longer works. Each one
+    carries a note saying what a right answer looks like, on hover.
+    """
+    from app.demo.stages import STAGES
+    from app.ui import prompts as lib
+
+    st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد. یا یکی از این نمونه‌ها را بزنید:")
+
+    for group in lib.GROUPS:
+        st.markdown(
+            f"<div class='ask-count' style='margin-top:10px'>{esc(group.title)}</div>"
+            f"<div class='meta' style='margin-bottom:4px'>{esc(group.blurb)}</div>",
+            unsafe_allow_html=True,
+        )
+        # A follow-up is shown attached to what it follows, dimmed, because on
+        # its own it refines nothing.
+        for index, prompt in enumerate(group.prompts):
+            label = ("↳ " if prompt.follows else "") + prompt.text
+            if len(label) > 92:
+                label = label[:92] + "…"
+            if st.button(label, key=f"lib_{group.id}_{index}", use_container_width=True,
+                         help=prompt.note, disabled=prompt.follows and not _history()):
+                if prompt.intent:
+                    st.session_state["agent_intent"] = prompt.intent
+                _submit(cfg, prompt.text)
+
+    runnable = [stage for stage in STAGES if stage.prompts]
+    if runnable:
+        with st.expander("مراحل نمایش — هر مرحله چند پرسش پشت سر هم را اجرا می‌کند"):
+            for stage in runnable:
+                if st.button(stage.title, key=f"stage_{stage.id}", use_container_width=True,
+                             help=stage.blurb):
+                    st.session_state["stage"] = {"id": stage.id, "step": 0}
+                    st.rerun()
+
+
 def _stage_bar(cfg: dict) -> None:
     """A demo stage in progress: which prompt is next, and one button to send it
     with the intent and run mode the stage prescribes."""
@@ -1451,18 +1484,7 @@ def render(cfg: dict, state: dict) -> None:
     _stage_bar(cfg)
 
     if not history:
-        st.caption("بنویسید یا بگویید — سامانه خودش تشخیص می‌دهد. یا یکی از مراحل نمایش را آغاز کنید:")
-        from app.demo.stages import STAGES
-
-        runnable = [s for s in STAGES if s.prompts]
-        for column, stage in zip(st.columns(len(runnable)), runnable):
-            if column.button(stage.title, key=f"stage_{stage.id}", use_container_width=True,
-                             help=stage.blurb):
-                st.session_state["stage"] = {"id": stage.id, "step": 0}
-                st.rerun()
-        for column, example in zip(st.columns(len(_EXAMPLES)), _EXAMPLES):
-            if column.button(example, key=f"ex_{example[:10]}", use_container_width=True):
-                _submit(cfg, example)
+        _home(cfg)
     else:
         head = st.columns([5, 1])
         head[1].button(
