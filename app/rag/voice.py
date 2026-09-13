@@ -42,8 +42,9 @@ _COMMANDS: dict[str, tuple[str, ...]] = {
 # Persian text arrives with a zero-width non-joiner in the middle of many
 # words, and speech-to-text is not consistent about it — «گفت‌وگوی» and
 # «گفتوگوی» are the same phrase to a listener, so they must be the same here.
-_STRIP = str.maketrans({"‌": " ", "ٔ": "", "‌": " ", "،": " ", ".": " ",
-                        "؟": " ", "!": " ", "؛": " "})
+_STRIP = str.maketrans({"\u200c": " ",   # ZWNJ: «گفت‌وگوی» == «گفت وگوی»
+                        "\u0654": "",     # hamza above: «پروندهٔ» == «پرونده»
+                        "،": " ", ".": " ", "؟": " ", "!": " ", "؛": " "})
 
 
 def fold(text: str) -> str:

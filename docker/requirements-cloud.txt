@@ -24,3 +24,5 @@ fastembed==0.8.0
 # ephemeral container anyway. Cloud deployments point DATABASE_URL at a managed
 # Postgres — Supabase, Neon, or Oracle's own — which is also what makes this
 # image identical on x86 and ARM.
+# Gemini's live transcription model (app/rag/gemini_stt.py).
+google-genai
