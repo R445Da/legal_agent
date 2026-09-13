@@ -336,6 +336,44 @@ async def _archive_query(session, llm, query: str, within: list | None = None) -
     }
 
 
+# --------------------------------------------------------------------------- #
+# Editing — the only tools that touch a record, and neither of them writes
+# --------------------------------------------------------------------------- #
+# The tool set is otherwise read-only by design: writes stay behind a human
+# gate. These two keep that rule. They build a proposal — the current value
+# beside the new one — and the chat shows it for confirmation; only the
+# confirmation calls `entryedit.apply`. The model's job is to identify which
+# entry and which field the user means, never to author the value.
+async def _find_entry(session, llm, query: str, limit: int = 6, **_) -> dict:
+    from app.rag import catalog
+
+    rows = await catalog.search_entries(session, query, limit=min(int(limit or 6), 15))
+    return {"entries": [
+        {"id": str(r.get("id")), "title": r.get("title") or "",
+         "case_number": (r.get("entities") or {}).get("case_number") or "",
+         "summary": (r.get("summary") or "")[:200]}
+        for r in rows
+    ]}
+
+
+async def _propose_edit(session, llm, entry_id: str, field: str, value=None, **_) -> dict:
+    from app.rag import entryedit
+
+    try:
+        return {"proposal": await entryedit.propose_edit(session, entry_id, field, value)}
+    except entryedit.EditError as error:
+        return {"error": str(error)}
+
+
+async def _propose_append(session, llm, entry_id: str, field: str, item=None, **_) -> dict:
+    from app.rag import entryedit
+
+    try:
+        return {"proposal": await entryedit.propose_append(session, entry_id, field, item)}
+    except entryedit.EditError as error:
+        return {"error": str(error)}
+
+
 TOOLS: list[Tool] = [
     Tool(
         "archive_query",
@@ -428,6 +466,41 @@ TOOLS: list[Tool] = [
         {"type": "object", "properties": {}},
         _corpus_stats,
     ),
+    Tool(
+        "find_entry",
+        "یافتن مدخل برای ویرایش: با عنوان، شمارهٔ پرونده یا موضوع جستجو می‌کند و "
+        "شناسهٔ مدخل‌ها را برمی‌گرداند. پیش از هر ویرایش، مدخل را با این ابزار پیدا کنید.",
+        {"type": "object", "properties": {
+            "query": {"type": "string", "description": "عنوان، شمارهٔ پرونده یا موضوع مدخل"},
+            "limit": _OPT_INT,
+        }, "required": ["query"]},
+        _find_entry,
+    ),
+    Tool(
+        "propose_edit",
+        "پیشنهاد تغییر یک فیلد از یک مدخل. چیزی را ذخیره نمی‌کند — مقدار فعلی و "
+        "مقدار جدید را برای تأیید کاربر برمی‌گرداند. `value` باید دقیقاً همان چیزی "
+        "باشد که کاربر گفته است؛ مقدار جدید را خودتان نسازید. فیلدها: عنوان، خلاصه، "
+        "نوع، برچسب‌ها، شمارهٔ پرونده، مرجع رسیدگی، موضوع.",
+        {"type": "object", "properties": {
+            "entry_id": {"type": "string", "description": "شناسهٔ مدخل از find_entry"},
+            "field": {"type": "string", "description": "نام فیلد، فارسی یا انگلیسی"},
+            "value": {"type": "string", "description": "مقدار جدید، به بیان خود کاربر"},
+        }, "required": ["entry_id", "field", "value"]},
+        _propose_edit,
+    ),
+    Tool(
+        "propose_append",
+        "پیشنهاد افزودن یک مورد به فیلد فهرستی یک مدخل — مثلاً یک رویداد به تایم‌لاین "
+        "یا یک برچسب. چیزی را ذخیره نمی‌کند. برای رویداد، تاریخ را در ابتدای متن "
+        "بیاورید: «۱۴۰۳/۰۵/۱۲ جلسهٔ کارشناسی».",
+        {"type": "object", "properties": {
+            "entry_id": {"type": "string", "description": "شناسهٔ مدخل از find_entry"},
+            "field": {"type": "string", "description": "رویدادها، برچسب‌ها، طرفین، وکالت یا مستندات قانونی"},
+            "item": {"type": "string", "description": "موردی که اضافه می‌شود، به بیان خود کاربر"},
+        }, "required": ["entry_id", "field", "item"]},
+        _propose_append,
+    ),
 ]
 _BY_NAME = {t.name: t for t in TOOLS}
 
@@ -515,6 +588,12 @@ async def _execute(session, llm, call: dict, ledger: EvidenceLedger, done: set[s
         out = {"error": f"{type(error).__name__}: {error}"}
     ms = round((time.perf_counter() - t0) * 1000)
 
+    # A proposal has to survive the loop. `tool_log` is otherwise a summary —
+    # one line per call — but an edit proposal is what the user has to confirm,
+    # and re-running the tool to fetch it again would re-read a record that may
+    # have changed in between.
+    proposal = out.get("proposal") if isinstance(out, dict) else None
+
     evidence_ns: list[int] = []
     if tool.evidence and "error" not in out:
         for item in tool.evidence(out):
@@ -530,6 +609,8 @@ async def _execute(session, llm, call: dict, ledger: EvidenceLedger, done: set[s
                   + ledger.render(evidence_ns) + "\n\n" + content
     row = {"seq": seq, "tool": name, "args": args, "summary": _summarise(name, args, out),
            "ms": ms, "evidence_ns": evidence_ns, "error": out.get("error")}
+    if proposal:
+        row["proposal"] = proposal
     return row, content, "error" in out
 
 

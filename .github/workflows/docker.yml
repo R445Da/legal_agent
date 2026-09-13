@@ -130,6 +130,7 @@ jobs:
           pg_restore --no-owner --no-privileges --dbname "$url" docker/seed.dump
           DATABASE_URL="$url" python -m scripts.migrate_fts
           DATABASE_URL="$url" python -m scripts.migrate_runs
+          DATABASE_URL="$url" python -m scripts.migrate_conversations
           n=$(psql "$url" -tAc 'select count(*) from documents')
           [ "$n" = "806" ] || { echo "::error::expected 806 documents, got $n"; exit 1; }
           cols=$(psql "$url" -tAc "select count(*) from information_schema.columns

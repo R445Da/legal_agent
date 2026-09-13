@@ -105,8 +105,12 @@ class RouteRequest(BaseModel):
 @router.post("/route")
 async def route_only(req: RouteRequest, request: Request):
     """Classify a message without acting on it. The browser then calls the
-    matching executor — so nothing is drafted from a mis-routed question."""
-    decision = await route(_require(_llm(request, req.model)), req.text)
+    matching executor — so nothing is drafted from a mis-routed question.
+    The session lets a party the archive knows decide the route, as it does
+    in `run_assistant`."""
+    llm = _require(_llm(request, req.model))
+    async with _sessions()() as s:
+        decision = await route(llm, req.text, session=s)
     return {"intent": decision.intent, "confidence": decision.confidence,
             "clarification": decision.clarification, "reason": decision.reason,
             "label": _INTENT_FA.get(decision.intent, decision.intent)}

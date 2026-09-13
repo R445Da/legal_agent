@@ -463,6 +463,62 @@ class GraphEdge(Base):
 # =========================================================================== #
 # v3 — answers with provenance
 # =========================================================================== #
+class Conversation(Base):
+    """One chat thread, with the record it is currently working on.
+
+    The chat used to live in `st.session_state["chat"]` — a list in one browser
+    tab, so a reload lost it and neither the API nor any query could see it.
+    As rows it survives, can be reopened, and can be deleted.
+
+    `focus` is what makes a follow-up work without naming anything: whenever a
+    turn touches a record — filed it, edited it, searched it — that record is
+    stored here, so «نشانش بده» or «یک رویداد به تایم‌لاینش اضافه کن» resolves
+    to the entry the user has been working on.
+    """
+
+    __tablename__ = "conversations"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)   # first question, trimmed
+    source: Mapped[str] = mapped_column(String, default="ui")          # ui | api | console
+    # {"kind": "entry"|"case", "id": ..., "label": ...} — the current subject
+    focus: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="conversation", cascade="all, delete-orphan",
+        order_by="Message.created_at",
+    )
+
+    __table_args__ = (Index("ix_conversations_updated", "updated_at"),)
+
+
+class Message(Base):
+    """One turn. `extra` carries whatever that turn rendered — provenance, the
+    cases of a roster answer, a pending edit — so reopening a conversation
+    shows what it showed, not a bare transcript."""
+
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String, nullable=False)        # user | assistant
+    text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    intent: Mapped[str | None] = mapped_column(String, nullable=True)
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    extra: Mapped[dict] = mapped_column(JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="messages")
+
+    __table_args__ = (Index("ix_messages_conversation", "conversation_id", "created_at"),)
+
+
 class AssistantAnswer(Base):
     """One answered question, with what it rested on (`app/rag/provenance.py`).
 
@@ -482,6 +538,9 @@ class AssistantAnswer(Base):
     model: Mapped[str | None] = mapped_column(String, nullable=True)
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("runs.id", ondelete="SET NULL"), nullable=True
+    )
+    conversation_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), nullable=True
     )
     provenance: Mapped[dict] = mapped_column(JSONB, default=dict)
 

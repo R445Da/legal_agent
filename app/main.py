@@ -39,7 +39,8 @@ from app.rag.orchestrator import (
 )
 from app.rag.pipeline import answer_question
 from app.rag.retriever import effective_config, retrieve_scored
-from app.rag import casebase, catalog, ci, conversation, graph, hooks, lawbase, vaultmap, vaultsync, workflow
+from app.rag import (casebase, catalog, ci, conversation, conversations, entryedit, graph, hooks,
+                     lawbase, vaultmap, vaultsync, workflow)
 from app.rag import provenance as prov
 from app.rag import runs as run_store
 from app.rag import transcribe as stt
@@ -244,6 +245,74 @@ async def health():
         "embedding_model": settings.embedding_model,
         "stt_available": stt.enabled(),
     }
+
+
+@app.get("/conversations", dependencies=auth)
+async def conversations_list(limit: int = 30):
+    """Chat threads, newest activity first, each with its message count and
+    the record it was working on."""
+    async with SessionLocal() as session:
+        return {"conversations": await conversations.recent(session, limit=limit)}
+
+
+@app.get("/conversations/{conversation_id}", dependencies=auth)
+async def conversations_get(conversation_id: str):
+    async with SessionLocal() as session:
+        convo = await conversations.get(session, conversation_id)
+    if convo is None:
+        raise HTTPException(status_code=404, detail="گفتگو یافت نشد")
+    return convo
+
+
+@app.delete("/conversations/{conversation_id}", dependencies=auth)
+async def conversations_delete(conversation_id: str):
+    """Delete a thread and its turns. The answers it produced stay in
+    `assistant_answers` — a chat list is the user's, the provenance is the
+    archive's."""
+    async with SessionLocal() as session:
+        removed = await conversations.remove(session, conversation_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="گفتگو یافت نشد")
+    return {"deleted": conversation_id}
+
+
+@app.post("/entries/{entry_id}/propose", dependencies=auth)
+async def entries_propose(entry_id: str, body: dict = Body(...)):
+    """Build an edit proposal. **Writes nothing** — it returns the current
+    value beside the new one for a human to confirm, and `/entries/{id}/apply`
+    is the only thing that commits it.
+
+    `{"field": "شمارهٔ پرونده", "value": "۱۴۰۰۲۲۲"}` replaces a field;
+    `{"field": "رویدادها", "item": "۱۴۰۳/۰۵/۱۲ جلسهٔ کارشناسی"}` appends to a
+    list field, keeping what is already there.
+    """
+    async with SessionLocal() as session:
+        try:
+            if "item" in body:
+                proposal = await entryedit.propose_append(
+                    session, entry_id, body.get("field", ""), body["item"])
+            else:
+                proposal = await entryedit.propose_edit(
+                    session, entry_id, body.get("field", ""), body.get("value"))
+        except entryedit.EditError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"proposal": proposal}
+
+
+@app.post("/entries/{entry_id}/apply", dependencies=auth)
+async def entries_apply(entry_id: str, body: dict = Body(...)):
+    """Commit a proposal returned by `/entries/{id}/propose`."""
+    proposal = body.get("proposal") or body
+    if str(proposal.get("entry_id")) != str(entry_id):
+        raise HTTPException(status_code=400, detail="پیشنهاد به این مدخل تعلق ندارد")
+    async with SessionLocal() as session:
+        try:
+            saved = await entryedit.apply(session, proposal)
+        except entryedit.EditError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+    if saved is None:
+        raise HTTPException(status_code=404, detail="مدخل یافت نشد")
+    return {"entry": saved}
 
 
 @app.get("/graph/vault", dependencies=auth)

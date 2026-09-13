@@ -21,7 +21,7 @@ import datetime as dt
 import streamlit as st
 
 from app.llm.meter import usage_of
-from app.rag import conversation
+from app.rag import conversation, conversations, entryedit
 from app.rag import provenance as prov
 from app.rag import runs, transcribe as stt, voice, workflow
 from app.rag.orchestrator import _INTENT_FA, attach_provenance, corpus_stats, route, similar_stage
@@ -33,16 +33,99 @@ from app.rag.textnorm import normalize_fa
 from app.ui import aio, askflow, components, data, speak
 from app.ui.views import graphmap
 from app.ui.resources import session
-from app.ui.theme import case_id, chips, esc, fa_ms, fa_num, kv, stamp
+from app.ui.theme import card, case_id, chips, esc, fa_ms, fa_num, kv, stamp
+
+def _conversation_id() -> str:
+    """The thread this tab is on, created on first use.
+
+    The chat used to be a list in `st.session_state`, which made it a property
+    of one browser tab: a reload lost it and nothing else could see it. The
+    list is still here as a per-rerun cache, but the rows are the truth.
+    """
+    cid = st.session_state.get("conversation_id")
+    if cid:
+        return cid
+
+    async def _start():
+        async with session() as s:
+            return await conversations.start(s, source="ui")
+
+    convo = aio.run(_start())
+    st.session_state["conversation_id"] = convo["id"]
+    st.session_state["chat"] = []
+    return convo["id"]
+
+
+def _load_conversation(conversation_id: str) -> None:
+    """Open an existing thread — its turns and what it was working on."""
+    async def _go():
+        async with session() as s:
+            return await conversations.get(s, conversation_id)
+
+    convo = aio.run(_go())
+    if not convo:
+        return
+    st.session_state["conversation_id"] = convo["id"]
+    st.session_state["chat"] = convo["messages"]
+    st.session_state["chat_focus"] = convo.get("focus") or {}
+
 
 def _history() -> list[dict]:
     return st.session_state.setdefault("chat", [])
 
 
 def _say(role: str, **fields) -> dict:
+    """Append a turn to the transcript and to the thread it belongs to."""
     message = {"role": role, **fields}
     _history().append(message)
+
+    cid = _conversation_id()
+    text = str(fields.get("text") or "")
+    extra = {k: v for k, v in fields.items()
+             if k not in ("text", "intent", "model") and _jsonable(v)}
+
+    async def _persist():
+        async with session() as s:
+            await conversations.add_message(
+                s, cid, role=role, text=text,
+                intent=fields.get("intent"), model=fields.get("model"), **extra,
+            )
+
+    try:
+        aio.run(_persist())
+    except Exception:  # noqa: BLE001 — a chat must not die because a write did
+        pass
     return message
+
+
+def _jsonable(value) -> bool:
+    """`extra` is a JSONB column; a provenance block with a datetime in it
+    would abort the whole turn's write."""
+    import json
+
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _focus(kind: str, record_id, label: str = "") -> None:
+    """Record what the conversation is now working on, so «نشانش بده» or
+    «یک رویداد به تایم‌لاینش اضافه کن» resolves without naming it again."""
+    cid = st.session_state.get("conversation_id")
+    if not cid:
+        return
+    st.session_state["chat_focus"] = {"kind": kind, "id": str(record_id), "label": label}
+
+    async def _go():
+        async with session() as s:
+            await conversations.set_focus(s, cid, kind=kind, id=record_id, label=label)
+
+    try:
+        aio.run(_go())
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -342,9 +425,15 @@ def _answer_with_agent(cfg: dict, text: str) -> None:
         st.warning("عامل ابزارها را فراخواند اما پاسخی ننوشت. سقف توکن خروجی را بالا ببرید.")
     components.provenance_panel(block, key_prefix="live_agent")
     components.steps_panel(steps_from(result, round(total_ms)))
+    # `propose_edit` / `propose_append` wrote nothing — the proposal rides out
+    # on the turn and the gate below the answer is what applies it.
+    pending_edit = next(
+        (row["proposal"] for row in reversed(result.tool_log) if row.get("proposal")), None)
+
     _say(
         "assistant", intent="agent", text=result.text, reasoning=result.reasoning,
         model=result.model, latency_ms=total_ms, provenance=block,
+        pending_edit=pending_edit,
     )
 
 
@@ -944,6 +1033,59 @@ def _gate_labels(labels: list[str], index: int) -> list[str]:
     )
 
 
+def _edit_gate(message: dict, index: int) -> None:
+    """The confirmation an edit has to pass before it reaches the archive.
+
+    `propose_edit` wrote nothing — this is the only place `entryedit.apply`
+    is called. One field, the current value beside the new one, and no table:
+    bulk field editing belongs to section ۱۷.
+    """
+    proposal = message.get("pending_edit")
+    if not proposal:
+        return
+
+    if message.get("edit_done"):
+        st.markdown(
+            f"<div class='ack'>ثبت شد — {esc(proposal['field_fa'])}: "
+            f"{esc(proposal['new_text'])}</div>", unsafe_allow_html=True)
+        return
+    if message.get("edit_cancelled"):
+        st.markdown("<div class='ack'>ویرایش انجام نشد.</div>", unsafe_allow_html=True)
+        return
+
+    verb = "افزودن به" if proposal.get("op") == "append" else "تغییر"
+    card(
+        f"<h4>{esc(verb)} «{esc(proposal['field_fa'])}»</h4>"
+        + kv([
+            ("مدخل", esc(proposal.get("entry_title") or proposal["entry_id"])),
+            ("مقدار فعلی", esc(proposal["old_text"])),
+            ("مقدار جدید", esc(proposal["new_text"])),
+        ])
+    )
+
+    left, right = st.columns(2)
+    if left.button("تأیید و ثبت", key=f"edit_ok_{index}", type="primary", use_container_width=True):
+        async def _apply():
+            async with session() as s:
+                return await entryedit.apply(s, proposal)
+
+        try:
+            saved = aio.run(_apply())
+        except Exception as error:  # noqa: BLE001 — shown, not raised into the chat
+            st.error(f"ثبت نشد — {error}")
+            return
+        message["edit_done"] = True
+        data.refresh()
+        # The entry just edited is what the conversation is working on, so
+        # «نشانش بده» or another change lands on it without naming it again.
+        _focus("entry", proposal["entry_id"], (saved or {}).get("title") or proposal.get("entry_title") or "")
+        st.rerun()
+
+    if right.button("انصراف", key=f"edit_no_{index}", use_container_width=True):
+        message["edit_cancelled"] = True
+        st.rerun()
+
+
 def _render(cfg: dict, message: dict, index: int) -> None:
     if message["role"] == "user":
         with st.chat_message("user", avatar="🧑"):
@@ -973,6 +1115,9 @@ def _render(cfg: dict, message: dict, index: int) -> None:
             st.markdown(f"<div class='ack'>{esc(message.get('text', ''))}</div>",
                         unsafe_allow_html=True)
             return
+
+        if message.get("pending_edit"):
+            _edit_gate(message, index)
 
         intent = message.get("intent")
         if intent:
@@ -1136,10 +1281,18 @@ def _answer_pending(cfg: dict) -> None:
                 decision = None
             else:
                 with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
-                    decision = aio.run(route(
-                        _active_llm(cfg), text,
-                        forced=None if forced == "auto" else forced,
-                    ))
+                    # The router needs a session: a message naming someone
+                    # the archive knows is answered from the party table, and
+                    # that lookup is what decides the route.
+                    async def _route_it():
+                        async with session() as s:
+                            return await route(
+                                _active_llm(cfg), text,
+                                forced=None if forced == "auto" else forced,
+                                session=s,
+                            )
+
+                    decision = aio.run(_route_it())
                     status.update(
                         label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
                               + f" · مدل: {cfg['entry']['label']}",
@@ -1483,6 +1636,48 @@ def _stage_bar(cfg: dict) -> None:
             st.rerun()
 
 
+def _threads() -> None:
+    """The conversation list — reopen one, or delete it.
+
+    A thread is a row now, so it survives a reload and can be removed. The
+    answers it produced stay in `assistant_answers` with their provenance:
+    deleting a chat clears the user's list, not the archive's record of what
+    was asked.
+    """
+    async def _recent():
+        async with session() as s:
+            return await conversations.recent(s, limit=20)
+
+    rows = aio.run(_recent())
+    if not rows:
+        components.empty("هنوز گفتگویی ذخیره نشده است.")
+        return
+
+    current = st.session_state.get("conversation_id")
+    st.caption("گفتگوهای پیشین — روی هرکدام بزنید تا باز شود.")
+    for row in rows:
+        cols = st.columns([6, 1])
+        label = row["title"]
+        if row.get("focus", {}).get("label"):
+            label += f" · {row['focus']['label']}"
+        mark = "▸ " if row["id"] == current else ""
+        if cols[0].button(f"{mark}{label}  ({fa_num(row.get('messages', 0))} پیام)",
+                          key=f"thread_{row['id']}", use_container_width=True):
+            _load_conversation(row["id"])
+            st.session_state["show_threads"] = False
+            st.rerun()
+        if cols[1].button("حذف", key=f"thread_del_{row['id']}", use_container_width=True):
+            async def _drop(cid=row["id"]):
+                async with session() as s:
+                    return await conversations.remove(s, cid)
+
+            aio.run(_drop())
+            if row["id"] == current:
+                st.session_state.pop("conversation_id", None)
+                st.session_state["chat"] = []
+            st.rerun()
+
+
 def render(cfg: dict, state: dict) -> None:
     """Chips when the conversation is empty, the transcript once it isn't, and
     the composer. Nothing else — this screen is a chat, and the model and
@@ -1494,11 +1689,18 @@ def render(cfg: dict, state: dict) -> None:
     if not history:
         _home(cfg)
     else:
-        head = st.columns([5, 1])
-        head[1].button(
-            "گفتگوی جدید", key="chat_clear", use_container_width=True,
-            on_click=lambda: st.session_state.update(chat=[]),
-        )
+        head = st.columns([4, 1, 1])
+        if head[1].button("گفتگوی جدید", key="chat_new", use_container_width=True):
+            st.session_state.pop("conversation_id", None)
+            st.session_state["chat"] = []
+            st.session_state["chat_focus"] = {}
+            st.rerun()
+        if head[2].button("گفتگوها", key="chat_list", use_container_width=True):
+            st.session_state["show_threads"] = not st.session_state.get("show_threads")
+            st.rerun()
+
+    if st.session_state.get("show_threads"):
+        _threads()
 
     for index, message in enumerate(history):
         _render(cfg, message, index)

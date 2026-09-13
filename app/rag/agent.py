@@ -73,8 +73,15 @@ async def answer_with_tools(
             session, intent="agent", question=question, answer=result.text,
             provenance=block, model=result.model, source=source,
         )
+    # The last proposal the loop produced, if any. It is returned beside the
+    # answer rather than applied: `propose_edit` writes nothing, and only the
+    # confirmation step in the chat calls `entryedit.apply`.
+    pending_edit = next(
+        (row["proposal"] for row in reversed(result.tool_log) if row.get("proposal")), None)
+
     return {
         "answer": result.text,
+        "pending_edit": pending_edit,
         "evidence": result.evidence,
         "tool_log": result.tool_log,
         "model": result.model,
