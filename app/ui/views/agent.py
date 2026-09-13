@@ -1136,10 +1136,18 @@ def _answer_pending(cfg: dict) -> None:
                 decision = None
             else:
                 with st.status("در حال تشخیص نوع پیام…", expanded=False) as status:
-                    decision = aio.run(route(
-                        _active_llm(cfg), text,
-                        forced=None if forced == "auto" else forced,
-                    ))
+                    # The router needs a session: a message naming someone
+                    # the archive knows is answered from the party table, and
+                    # that lookup is what decides the route.
+                    async def _route_it():
+                        async with session() as s:
+                            return await route(
+                                _active_llm(cfg), text,
+                                forced=None if forced == "auto" else forced,
+                                session=s,
+                            )
+
+                    decision = aio.run(_route_it())
                     status.update(
                         label=f"نوع پیام: {_INTENT_FA.get(decision.intent, decision.intent)}"
                               + f" · مدل: {cfg['entry']['label']}",

@@ -339,7 +339,8 @@ async def handle(text: str, *, llm, sessions, args) -> None:
     stage("۰۲", "مسیریاب · router")
     line(f"{C.dim}«{text[:120]}»{C.off}")
     t = time.perf_counter()
-    decision = await route(llm, text, forced=args.intent)
+    async with sessions() as s:
+        decision = await route(llm, text, forced=args.intent, session=s)
     took = (time.perf_counter() - t) * 1000
     intent = decision.intent
     field("تصمیم", f"{C.bold}{_INTENT_FA.get(intent, intent)}{C.off} ({intent})")

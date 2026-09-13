@@ -241,7 +241,39 @@ _CASES_HINT = ("پرونده‌های مشابه", "پرونده های مشاب
 _GREETING = ("سلام", "درود", "خداحافظ", "ممنون", "مرسی", "متشکرم", "hi", "hello", "thanks")
 
 
-async def route(llm: LLMProvider, text: str, *, forced: str | None = None) -> Route:
+# A question that names someone the archive knows is not a routing problem: the
+# party table already holds the exact answer. The roster lookup lives inside
+# `answer_case_question`, so it only ever ran when the router had already
+# guessed `cases` — and asking about one lawyer seven ways routed five
+# different ways, sending most of them to vector search over chunks, which
+# holds no party data at all. The name decides now, not the guess.
+#
+# Two tiers, because a dictated court session names people too and must still
+# be filed rather than answered: a short, question-shaped message takes the
+# shortcut before the model is called at all, and a long one is only
+# redirected after the model has said it is a question rather than a filing.
+_ENTITY_MAX_CHARS = 140
+_READ_INTENTS = frozenset({"query", "cases", "analytics", "unclear"})
+
+
+async def _entity_hit(session, text: str) -> dict | None:
+    """The profile of a party named in the message, if the archive knows one."""
+    if session is None:
+        return None
+    try:
+        from app.rag.casebase import entity_profile, named_entities
+
+        for kind, row in await named_entities(session, text):
+            profile = await entity_profile(session, kind, str(row.id))
+            if profile and profile.get("cases"):
+                return profile
+    except Exception:  # noqa: BLE001 — routing must not fail on a lookup
+        return None
+    return None
+
+
+async def route(llm: LLMProvider, text: str, *, forced: str | None = None,
+                session=None) -> Route:
     """Decide what to do with a message.
 
     `forced` (from the UI's «نوع پیام» selector) skips the model entirely. An
@@ -259,6 +291,12 @@ async def route(llm: LLMProvider, text: str, *, forced: str | None = None) -> Ro
     lowered = stripped.lower()
     if len(stripped) <= 30 and any(g in lowered for g in _GREETING):
         return Route(intent="chat", confidence=0.9, reason="احوال‌پرسی")
+
+    if len(stripped) <= _ENTITY_MAX_CHARS:
+        named = await _entity_hit(session, stripped)
+        if named:
+            return Route(intent="cases", confidence=0.95,
+                         reason=f"نام شناخته‌شده در پرسش: {named['name']}")
     if any(h in lowered for h in _ANALYTICS_HINT):
         return Route(intent="analytics", confidence=0.8, reason="واژهٔ شمارشی")
     if _LAW_RX.search(stripped) and any(m in stripped for m in ("؟", "?", "چه", "چیست", "میگوید", "می‌گوید")):
@@ -300,6 +338,12 @@ async def route(llm: LLMProvider, text: str, *, forced: str | None = None) -> Ro
             clarification=clarify or "منظورتان ثبت این مطلب در آرشیو است یا پرسشی درباره‌اش؟",
             reason=f"اطمینان پایین ({confidence:.0%})",
         )
+
+    if intent in _READ_INTENTS and len(stripped) > _ENTITY_MAX_CHARS:
+        named = await _entity_hit(session, stripped)
+        if named:
+            return Route(intent="cases", confidence=max(confidence, 0.9),
+                         reason=f"نام شناخته‌شده در پرسش: {named['name']}")
 
     return Route(intent=intent, confidence=confidence, reason=f"اطمینان {confidence:.0%}")
 
@@ -529,7 +573,7 @@ async def run_assistant(
 
     steps: list[dict] = []
     _s = _t.perf_counter()
-    decision = await route(llm, text, forced=force_intent)
+    decision = await route(llm, text, forced=force_intent, session=session)
     intent = decision.intent
     steps.append({
         "name": "مسیریاب",

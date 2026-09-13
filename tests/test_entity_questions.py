@@ -97,3 +97,68 @@ async def test_an_organisation_is_recognised_too(db_session):
 
     found = await casebase.named_entities(db_session, f"پرونده‌های {org.name} را نشان بده")
     assert org.name in [r.name for _, r in found]
+
+
+# --------------------------------------------------------------------------- #
+# Routing
+# --------------------------------------------------------------------------- #
+# The roster lookup above is exact and costs no model call, but it lives inside
+# `answer_case_question` — so it only ever runs if the router first guessed
+# `cases`. Asking about one lawyer seven ways routed five different ways
+# (cases, query, unclear, analytics), and only the `cases` share got the right
+# answer; the rest went to vector search over chunks, which holds no party
+# data, or stopped to ask what was meant. The database knew the answer every
+# time. So the name in the question, not the model's guess, has to decide.
+_PHRASINGS = [
+    "وکیل {name} در چه پرونده‌هایی بوده؟",
+    "{name}",
+    "پرونده‌های {name}",
+    "{name} وکیل کیست؟",
+    "درباره {name} بگو",
+    "چند پرونده {name} داشته؟",
+    "سابقه {name} چیست",
+]
+
+
+@pytest.mark.parametrize("template", _PHRASINGS)
+async def test_a_named_person_always_reaches_the_case_route(db_session, template):
+    from app.llm.mock_provider import MockProvider
+
+    from app.rag.orchestrator import route
+
+    row = await _a_lawyer(db_session)
+    assert row, "the seeded archive has no lawyer to ask about"
+    person, _ = row
+
+    decision = await route(MockProvider(), template.format(name=person.name), session=db_session)
+    assert decision.intent == "cases", f"{template} routed to {decision.intent}"
+
+
+async def test_a_question_naming_nobody_is_left_to_the_router(db_session):
+    """The shortcut must not swallow every question — one that names no known
+    party still goes through normal routing."""
+    from app.llm.mock_provider import MockProvider
+
+    from app.rag.orchestrator import route
+
+    decision = await route(MockProvider(), "سلام", session=db_session)
+    assert decision.intent == "chat"
+
+
+async def test_a_dictated_filing_that_mentions_a_party_is_still_archived(db_session):
+    """A court-session dictation names people too. Routing it to `cases`
+    because of that would make filing anything impossible."""
+    from app.llm.mock_provider import MockProvider
+
+    from app.rag.orchestrator import route
+
+    row = await _a_lawyer(db_session)
+    person, _ = row
+    dictation = (
+        f"جلسهٔ امروز دادگاه با حضور {person.name} برگزار شد. خواهان اظهار داشت که "
+        "خسارت وارده به خودرو پرداخت نشده و بیمه‌گر تعهدی نپذیرفته است. دادگاه پس از "
+        "استماع اظهارات طرفین و بررسی مدارک، ختم رسیدگی را اعلام و پرونده را به شعبهٔ "
+        "کارشناسی ارجاع داد تا میزان خسارت تعیین شود. جلسهٔ بعدی هفتهٔ آینده خواهد بود."
+    )
+    decision = await route(MockProvider(), dictation, forced="archive", session=db_session)
+    assert decision.intent == "archive"
