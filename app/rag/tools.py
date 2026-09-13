@@ -588,6 +588,12 @@ async def _execute(session, llm, call: dict, ledger: EvidenceLedger, done: set[s
         out = {"error": f"{type(error).__name__}: {error}"}
     ms = round((time.perf_counter() - t0) * 1000)
 
+    # A proposal has to survive the loop. `tool_log` is otherwise a summary —
+    # one line per call — but an edit proposal is what the user has to confirm,
+    # and re-running the tool to fetch it again would re-read a record that may
+    # have changed in between.
+    proposal = out.get("proposal") if isinstance(out, dict) else None
+
     evidence_ns: list[int] = []
     if tool.evidence and "error" not in out:
         for item in tool.evidence(out):
@@ -603,6 +609,8 @@ async def _execute(session, llm, call: dict, ledger: EvidenceLedger, done: set[s
                   + ledger.render(evidence_ns) + "\n\n" + content
     row = {"seq": seq, "tool": name, "args": args, "summary": _summarise(name, args, out),
            "ms": ms, "evidence_ns": evidence_ns, "error": out.get("error")}
+    if proposal:
+        row["proposal"] = proposal
     return row, content, "error" in out
 
 
